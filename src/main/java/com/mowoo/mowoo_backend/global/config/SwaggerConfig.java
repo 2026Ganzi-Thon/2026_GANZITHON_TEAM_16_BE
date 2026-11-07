@@ -5,12 +5,9 @@ import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.info.Info;
 import io.swagger.v3.oas.models.security.SecurityRequirement;
 import io.swagger.v3.oas.models.security.SecurityScheme;
-import io.swagger.v3.oas.models.servers.Server;
 import org.springdoc.core.models.GroupedOpenApi;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-
-import java.util.List;
 
 @Configuration
 public class SwaggerConfig {
@@ -19,8 +16,8 @@ public class SwaggerConfig {
     public OpenAPI openAPI() {
         Info apiInfo = new Info()
                 .version("v1.0.0")
-                .title("LTE API")
-                .description("Lte API Documentation");
+                .title("MOWOO API")
+                .description("모우 백엔드 API");
 
         String jwtSchemeName = "BearerToken";
         SecurityRequirement securityRequirement = new SecurityRequirement().addList(jwtSchemeName);
@@ -31,19 +28,10 @@ public class SwaggerConfig {
                         .scheme("bearer")
                         .bearerFormat("JWT"));
 
-        Server localServer = new Server()
-                .url("http://localhost:8080")
-                .description("Lte Local Server");
-
-        Server httpServer = new Server()
-                .url("http://lte-dev-env.eba-uhe4na6c.ap-northeast-2.elasticbeanstalk.com")
-                .description("LTE HTTP Server");
-
         return new OpenAPI()
                 .info(apiInfo)
                 .addSecurityItem(securityRequirement)
-                .components(components)
-                .servers(List.of(localServer, httpServer));
+                .components(components);
     }
 
     @Bean
