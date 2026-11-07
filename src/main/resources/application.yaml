@@ -1,0 +1,36 @@
+spring:
+  application:
+    name: mowoo-backend
+  datasource:
+    url: ${DB_URL:jdbc:mysql://localhost:3306/mowoo}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD:}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: update
+  servlet:
+    multipart:
+      max-file-size: ${UPLOAD_MAX_FILE_SIZE:10MB}
+      max-request-size: ${UPLOAD_MAX_REQUEST_SIZE:30MB}
+
+jwt:
+  secret: ${JWT_SECRET}
+  access-exp-ms: ${JWT_EXPIRATION:3600000}
+  refresh-exp-ms: ${JWT_REFRESH_EXPIRATION:1209600000}
+
+app:
+  dotenv:
+    directory: ${DOTENV_DIRECTORY:.}
+
+cloud:
+  aws:
+    region: ${AWS_REGION}
+    credentials:
+      access-key: ${AWS_ACCESS_KEY_ID}
+      secret-key: ${AWS_SECRET_ACCESS_KEY}
+    s3:
+      enabled: ${AWS_S3_ENABLED:false}
+      bucket: ${AWS_S3_BUCKET}
+      path:
+        location: ${AWS_S3_LOCATION:uploads}

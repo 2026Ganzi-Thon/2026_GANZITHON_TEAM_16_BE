@@ -1,0 +1,1 @@
+org.springframework.boot.EnvironmentPostProcessor=com.mowoo.mowoo_backend.global.config.DotEnvConfig
