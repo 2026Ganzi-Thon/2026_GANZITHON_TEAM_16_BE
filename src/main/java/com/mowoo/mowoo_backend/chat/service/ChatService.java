@@ -19,7 +19,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.util.List;
 import java.util.UUID;
 
-// 대화 엔티티는 users·ai_characters 엔티티가 develop에 들어온 뒤 만든다. 그 전까지 각 기능은 구현 전 상태다.
+// 각 기능은 대화 엔티티를 사용하도록 차례로 구현한다. 구현 전 기능은 UnsupportedOperationException을 던진다.
 @Service
 public class ChatService {
 
@@ -74,6 +74,6 @@ public class ChatService {
     }
 
     private UnsupportedOperationException notImplemented() {
-        return new UnsupportedOperationException("대화 엔티티 연결 후 구현 예정");
+        return new UnsupportedOperationException("구현 예정");
     }
 }
