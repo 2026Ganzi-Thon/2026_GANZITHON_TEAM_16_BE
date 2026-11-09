@@ -2,6 +2,7 @@ package com.mowoo.mowoo_backend.chat.service;
 
 import com.mowoo.mowoo_backend.character.entity.AiCharacter;
 import com.mowoo.mowoo_backend.character.entity.UserCharacter;
+import com.mowoo.mowoo_backend.chat.ai.StubChatAiClient;
 import com.mowoo.mowoo_backend.chat.dto.request.StartChatSessionRequest;
 import com.mowoo.mowoo_backend.chat.dto.response.ChatMessageResponse;
 import com.mowoo.mowoo_backend.chat.dto.response.ChatSessionDetailResponse;
@@ -34,7 +35,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 // 로컬 MySQL에서 실행하고 테스트마다 롤백한다.
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Import(ChatService.class)
+@Import({ChatService.class, StubChatAiClient.class})
 class ChatServiceSessionTest {
 
     @Autowired

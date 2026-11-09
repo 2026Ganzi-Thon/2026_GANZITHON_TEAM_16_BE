@@ -2,6 +2,9 @@ package com.mowoo.mowoo_backend.chat.service;
 
 import com.mowoo.mowoo_backend.character.entity.AiCharacter;
 import com.mowoo.mowoo_backend.character.entity.UserCharacter;
+import com.mowoo.mowoo_backend.chat.ai.ChatAiClient;
+import com.mowoo.mowoo_backend.chat.ai.ChatAiException;
+import com.mowoo.mowoo_backend.chat.ai.ChatAiRequest;
 import com.mowoo.mowoo_backend.chat.dto.request.CreateDiaryReferenceRequest;
 import com.mowoo.mowoo_backend.chat.dto.request.SendMessageRequest;
 import com.mowoo.mowoo_backend.chat.dto.request.StartChatSessionRequest;
@@ -51,6 +54,7 @@ public class ChatService {
     private final ChatSessionRepository sessionRepository;
     private final ChatMessageRepository messageRepository;
     private final CharacterOwnershipRepository characterOwnershipRepository;
+    private final ChatAiClient chatAiClient;
     private final EntityManager entityManager;
 
     @Transactional
@@ -147,22 +151,84 @@ public class ChatService {
         sessionRepository.delete(findOwnedSession(userId, sessionId));
     }
 
+    // AI 응답까지 만들어야 한 왕복으로 저장한다. AI가 실패하면 사용자 메시지도 저장하지 않는다(롤백).
+    @Transactional
     public SendMessageResponse sendMessage(
             UUID userId,
             UUID sessionId,
             SendMessageRequest request,
             List<MultipartFile> files
     ) {
-        throw notImplemented();
+        if (!request.hasContent() && files.isEmpty()) {
+            throw new BusinessException(ChatErrorCode.MESSAGE_EMPTY);
+        }
+        if (!files.isEmpty()) {
+            // 사진 첨부는 저장소 연결 후 구현한다.
+            throw notImplemented();
+        }
+
+        ChatSession session = sessionRepository.findByIdAndUserIdForUpdate(sessionId, userId)
+                .orElseThrow(() -> new BusinessException(ChatErrorCode.SESSION_NOT_FOUND));
+        if (session.isEnded()) {
+            throw new BusinessException(ChatErrorCode.SESSION_CLOSED);
+        }
+        AiCharacter character = resolveReplyCharacter(userId, session, request.characterId());
+
+        int nextSequenceNo = messageRepository.findTopBySessionIdOrderBySequenceNoDesc(sessionId)
+                .map(latest -> latest.getSequenceNo() + 1)
+                .orElse(1);
+        ChatMessage userMessage = messageRepository.save(
+                ChatMessage.ofUser(session, nextSequenceNo, request.content()));
+
+        String reply = generateReply(character, messageRepository.findBySessionIdOrderBySequenceNo(sessionId));
+        ChatMessage assistantMessage = messageRepository.saveAndFlush(
+                ChatMessage.ofAssistant(session, nextSequenceNo + 1, character, reply));
+        // DATETIME은 초 단위로 저장되므로 다시 읽어서 이후 조회와 같은 createdAt을 응답한다.
+        entityManager.refresh(userMessage);
+        entityManager.refresh(assistantMessage);
+
+        int completedTurns = countCompletedTurns(sessionId);
+        return new SendMessageResponse(
+                toMessageResponse(userMessage),
+                toMessageResponse(assistantMessage),
+                completedTurns,
+                ChatTurnPolicy.canGenerateDiary(completedTurns)
+        );
     }
 
+    // 가장 최근 왕복의 사용자 메시지만 고칠 수 있다. 그 뒤의 AI 응답은 같은 캐릭터로 다시 만든다.
+    @Transactional
     public UpdateMessageResponse updateMessage(
             UUID userId,
             UUID sessionId,
             UUID messageId,
             UpdateMessageRequest request
     ) {
-        throw notImplemented();
+        // 명세상 다른 사용자의 세션이나 없는 세션도 MESSAGE_NOT_FOUND로 응답한다.
+        ChatSession session = sessionRepository.findByIdAndUserIdForUpdate(sessionId, userId)
+                .orElseThrow(() -> new BusinessException(ChatErrorCode.MESSAGE_NOT_FOUND));
+        ChatMessage userMessage = messageRepository.findByIdAndSessionId(messageId, sessionId)
+                .orElseThrow(() -> new BusinessException(ChatErrorCode.MESSAGE_NOT_FOUND));
+        if (session.isEnded()) {
+            throw new BusinessException(ChatErrorCode.SESSION_CLOSED);
+        }
+
+        // 마지막 메시지가 이 사용자 메시지에 대한 AI 응답이어야 한다.
+        ChatMessage latest = messageRepository.findTopBySessionIdOrderBySequenceNoDesc(sessionId).orElseThrow();
+        boolean isLatestTurn = userMessage.getSenderRole() == SenderRole.USER
+                && latest.getSenderRole() == SenderRole.ASSISTANT
+                && latest.getSequenceNo() == userMessage.getSequenceNo() + 1;
+        if (!isLatestTurn) {
+            throw new BusinessException(ChatErrorCode.MESSAGE_NOT_EDITABLE);
+        }
+
+        userMessage.edit(request.content(), Instant.now().truncatedTo(ChronoUnit.SECONDS));
+        List<ChatMessage> history = messageRepository.findBySessionIdOrderBySequenceNo(sessionId).stream()
+                .filter(message -> message.getSequenceNo() <= userMessage.getSequenceNo())
+                .toList();
+        latest.replaceReply(generateReply(latest.getCharacter(), history));
+
+        return new UpdateMessageResponse(toMessageResponse(userMessage), toMessageResponse(latest));
     }
 
     public ListResponse<DiarySuggestionResponse> getDiarySuggestions(UUID userId, UUID sessionId, UUID messageId) {
@@ -180,6 +246,32 @@ public class ChatService {
     private ChatSession findOwnedSession(UUID userId, UUID sessionId) {
         return sessionRepository.findByIdAndUserId(sessionId, userId)
                 .orElseThrow(() -> new BusinessException(ChatErrorCode.SESSION_NOT_FOUND));
+    }
+
+    // 캐릭터를 지정하지 않으면 세션의 기본 캐릭터로 응답한다.
+    private AiCharacter resolveReplyCharacter(UUID userId, ChatSession session, UUID characterId) {
+        if (characterId == null || characterId.equals(session.getCharacter().getId())) {
+            return session.getCharacter();
+        }
+        if (!characterOwnershipRepository.existsById(new UserCharacter.Id(userId, characterId))) {
+            throw new BusinessException(ChatErrorCode.CHARACTER_NOT_OWNED);
+        }
+        return entityManager.find(AiCharacter.class, characterId);
+    }
+
+    private String generateReply(AiCharacter character, List<ChatMessage> history) {
+        ChatAiRequest request = new ChatAiRequest(
+                character.getName(),
+                character.getDescription(),
+                history.stream()
+                        .map(message -> new ChatAiRequest.Message(message.getSenderRole(), message.getContent()))
+                        .toList()
+        );
+        try {
+            return chatAiClient.reply(request);
+        } catch (ChatAiException e) {
+            throw new BusinessException(ChatErrorCode.AI_UNAVAILABLE);
+        }
     }
 
     private int countCompletedTurns(UUID sessionId) {

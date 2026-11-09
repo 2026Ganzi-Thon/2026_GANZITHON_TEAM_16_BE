@@ -17,6 +17,11 @@ public interface ChatMessageRepository extends JpaRepository<ChatMessage, UUID> 
     // 다음 순번 계산과 최근 메시지 수정 가능 여부 확인에 쓴다.
     Optional<ChatMessage> findTopBySessionIdOrderBySequenceNoDesc(UUID sessionId);
 
+    Optional<ChatMessage> findByIdAndSessionId(UUID id, UUID sessionId);
+
+    // AI에 넘길 대화 기록
+    List<ChatMessage> findBySessionIdOrderBySequenceNo(UUID sessionId);
+
     // ChatTurnPolicy.countCompletedTurns에 넘길 발신자 순서
     @Query("select m.senderRole from ChatMessage m where m.session.id = :sessionId order by m.sequenceNo")
     List<SenderRole> findSenderRolesBySessionId(@Param("sessionId") UUID sessionId);
