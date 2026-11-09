@@ -1,5 +1,6 @@
 package com.mowoo.mowoo_backend.global.config;
 
+import com.mowoo.mowoo_backend.global.exception.SecurityErrorHandler;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -23,7 +24,8 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(
             HttpSecurity http,
-            @Qualifier("accessTokenDecoder") JwtDecoder accessTokenDecoder
+            @Qualifier("accessTokenDecoder") JwtDecoder accessTokenDecoder,
+            SecurityErrorHandler securityErrorHandler
     ) throws Exception {
 
         http
@@ -51,9 +53,16 @@ public class SecurityConfig {
                         ).permitAll()
                         .anyRequest().authenticated()
                 )
+                // 토큰이 없거나 권한이 없을 때도 공통 에러 형식으로 응답
+                .exceptionHandling(exception -> exception
+                        .authenticationEntryPoint(securityErrorHandler)
+                        .accessDeniedHandler(securityErrorHandler)
+                )
                 // 요청에 Authorization: Bearer <JWT>가 들어오면 accessTokenDecoder로 JWT를 검증해라
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .jwt(jwt -> jwt.decoder(accessTokenDecoder))
+                        .authenticationEntryPoint(securityErrorHandler)
+                        .accessDeniedHandler(securityErrorHandler)
                 );
 
         return http.build();

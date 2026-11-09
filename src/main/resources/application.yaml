@@ -9,6 +9,11 @@ spring:
     open-in-view: false
     hibernate:
       ddl-auto: update
+    properties:
+      hibernate:
+        type:
+          # UUID 타입 ID를 binary(16) 대신 ERD와 같은 36자 문자열로 저장
+          preferred_uuid_jdbc_type: CHAR
   servlet:
     multipart:
       max-file-size: ${UPLOAD_MAX_FILE_SIZE:10MB}
