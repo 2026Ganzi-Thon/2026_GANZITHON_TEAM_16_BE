@@ -1,7 +1,15 @@
 package com.mowoo.mowoo_backend.global.response;
 
+import com.mowoo.mowoo_backend.global.code.BaseCode;
 import java.util.List;
 
-// 페이지가 없는 목록 응답: {"items": [...]}
-public record ListResponse<T>(List<T> items) {
+public record ListResponse<T>(boolean isSuccess, String code, String message, List<T> items) {
+
+    public ListResponse(List<T> items) {
+        this(CommonSuccessCode.SUCCESS, items);
+    }
+
+    public ListResponse(BaseCode code, List<T> items) {
+        this(true, code.name(), code.getMessage(), items);
+    }
 }

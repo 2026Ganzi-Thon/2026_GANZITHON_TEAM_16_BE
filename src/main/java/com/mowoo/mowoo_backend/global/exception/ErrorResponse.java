@@ -1,12 +1,14 @@
 package com.mowoo.mowoo_backend.global.exception;
 
-// API 명세 공통 규약의 에러 응답 형식: {"error": {"code": "...", "message": "..."}}
-public record ErrorResponse(Detail error) {
+import com.mowoo.mowoo_backend.global.code.BaseCode;
+
+public record ErrorResponse(boolean isSuccess, String message, Detail error) {
 
     public record Detail(String code, String message) {
     }
 
-    public static ErrorResponse of(ErrorCode errorCode) {
-        return new ErrorResponse(new Detail(errorCode.name(), errorCode.getMessage()));
+    public static ErrorResponse of(BaseCode errorCode) {
+        String message = errorCode.getMessage();
+        return new ErrorResponse(false, message, new Detail(errorCode.name(), message));
     }
 }

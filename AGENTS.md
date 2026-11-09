@@ -8,8 +8,8 @@
 
 # 공통 응답·예외·ID 규칙
 
-- 성공 응답은 래퍼 없이 DTO를 그대로 반환한다. 상태 코드는 생성 201, 본문 없는 삭제 204, 그 외 200으로 맞춘다.
+- 성공 응답은 `isSuccess: true`, `code`, `message`를 DTO 최상위에 담는다. `code`는 `CommonSuccessCode` 상수 이름이고, `message`는 해당 상수의 안내 문구다. 상태 코드는 생성 201, 그 외 200으로 맞춘다. 별도 데이터가 없으면 `SuccessResponse`를 반환한다.
 - 페이지가 없는 목록은 `ListResponse<T>`(`items`), 커서 페이지 목록은 `CursorResponse<T>`(`items`, `nextCursor`)로 반환한다.
-- 실패는 `throw new BusinessException(<도메인>ErrorCode.<코드>)`로 던진다. `GlobalExceptionHandler`가 `{"error": {"code", "message"}}` 형식으로 응답한다.
-- 에러 코드는 도메인별 enum(예: `ChatErrorCode`)이 `ErrorCode`를 구현해 추가한다. enum 상수 이름이 그대로 응답의 `code`가 되므로 API 명세의 코드 이름과 맞춘다.
+- 실패는 `throw new BusinessException(<도메인>ErrorCode.<코드>)`로 던진다. 공통 실패 응답에는 `isSuccess: false`, `message`, `error: {code, message}`가 포함된다.
+- 성공·실패 코드 enum은 `BaseCode`를 구현한다. enum 상수 이름은 API 명세와 맞춘다. 성공은 최상위 `code`, 실패는 `error.code`에 담는다.
 - 엔티티 ID는 `UUID` 타입에 `@GeneratedValue(strategy = GenerationType.UUID)`를 붙인다. FK와 복합키의 UUID도 전역 설정에 따라 36자 문자열로 저장된다.
