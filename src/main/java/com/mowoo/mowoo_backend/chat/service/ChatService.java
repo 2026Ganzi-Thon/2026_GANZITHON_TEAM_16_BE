@@ -231,6 +231,31 @@ public class ChatService {
         return new UpdateMessageResponse(toMessageResponse(userMessage), toMessageResponse(latest));
     }
 
+    // 일기 파트의 AI 초안 생성(PUT /chat-sessions/{sessionId}/diary-draft)에서 호출한다.
+    // 본인 대화가 아니면 명세대로 SESSION_NOT_FOUND를 던진다.
+    public ChatTranscript getTranscript(UUID userId, UUID sessionId) {
+        ChatSession session = findOwnedSession(userId, sessionId);
+        List<ChatMessage> messages = messageRepository.findBySessionIdOrderBySequenceNo(sessionId);
+        int completedTurns = ChatTurnPolicy.countCompletedTurns(
+                messages.stream().map(ChatMessage::getSenderRole).toList());
+
+        return new ChatTranscript(
+                session.getId(),
+                session.getStartedAt(),
+                session.getEndedAt(),
+                completedTurns,
+                ChatTurnPolicy.canGenerateDiary(completedTurns),
+                messages.stream()
+                        .map(message -> new ChatTranscript.Message(
+                                message.getSequenceNo(),
+                                message.getSenderRole(),
+                                message.getCharacter() == null ? null : message.getCharacter().getName(),
+                                message.getContent(),
+                                message.getCreatedAt()))
+                        .toList()
+        );
+    }
+
     public ListResponse<DiarySuggestionResponse> getDiarySuggestions(UUID userId, UUID sessionId, UUID messageId) {
         throw notImplemented();
     }
