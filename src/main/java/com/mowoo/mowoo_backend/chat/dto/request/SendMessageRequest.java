@@ -3,7 +3,7 @@ package com.mowoo.mowoo_backend.chat.dto.request;
 import java.util.UUID;
 
 // POST /api/v1/chat-sessions/{sessionId}/messages
-// 사진을 보낼 때는 multipart의 payload 파트에 이 JSON을 넣는다. 본문과 사진이 모두 없으면 MESSAGE_EMPTY로 거절한다.
+// 본문이 비어 있으면 MESSAGE_EMPTY로 거절한다.
 // characterId가 없으면 대화 세션의 캐릭터로 응답한다.
 public record SendMessageRequest(
         String content,

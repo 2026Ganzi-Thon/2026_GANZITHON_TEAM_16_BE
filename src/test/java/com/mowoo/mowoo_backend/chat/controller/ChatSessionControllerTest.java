@@ -25,31 +25,24 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
-import org.springframework.mock.web.MockMultipartFile;
-import org.springframework.mock.web.MockPart;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
-import org.springframework.web.multipart.MultipartFile;
 
-import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -177,8 +170,8 @@ class ChatSessionControllerTest {
     }
 
     @Test
-    void jsonMessageIsSentWithoutFiles() throws Exception {
-        given(chatService.sendMessage(eq(USER_ID), eq(SESSION_ID), any(), anyList()))
+    void messageIsSent() throws Exception {
+        given(chatService.sendMessage(eq(USER_ID), eq(SESSION_ID), any()))
                 .willReturn(new SendMessageResponse(null, null, 1, false));
 
         mockMvc.perform(post("/api/v1/chat-sessions/{sessionId}/messages", SESSION_ID).with(loginUser())
@@ -187,54 +180,7 @@ class ChatSessionControllerTest {
                 .andExpect(status().isCreated())
                 .andExpect(jsonPath("$.completedTurns").value(1));
 
-        verify(chatService).sendMessage(USER_ID, SESSION_ID, new SendMessageRequest("오늘 면접이 걱정돼요.", null), List.of());
-    }
-
-    @Test
-    void multipartMessageReadsJsonPayloadPartAndFiles() throws Exception {
-        given(chatService.sendMessage(eq(USER_ID), eq(SESSION_ID), any(), anyList()))
-                .willReturn(new SendMessageResponse(null, null, 1, false));
-        MockMultipartFile payload = new MockMultipartFile(
-                "payload", "", MediaType.APPLICATION_JSON_VALUE,
-                ("{\"content\":\"사진 보내요\",\"characterId\":\"" + CHARACTER_ID + "\"}").getBytes(StandardCharsets.UTF_8));
-        MockMultipartFile photo = new MockMultipartFile(
-                "files", "photo.jpg", MediaType.IMAGE_JPEG_VALUE, new byte[]{1, 2, 3});
-
-        mockMvc.perform(multipart("/api/v1/chat-sessions/{sessionId}/messages", SESSION_ID)
-                        .file(payload)
-                        .file(photo)
-                        .with(loginUser()))
-                .andExpect(status().isCreated());
-
-        @SuppressWarnings("unchecked")
-        ArgumentCaptor<List<MultipartFile>> filesCaptor = ArgumentCaptor.forClass(List.class);
-        verify(chatService).sendMessage(
-                eq(USER_ID), eq(SESSION_ID), eq(new SendMessageRequest("사진 보내요", CHARACTER_ID)), filesCaptor.capture());
-        assertThat(filesCaptor.getValue()).extracting(MultipartFile::getOriginalFilename).containsExactly("photo.jpg");
-    }
-
-    @Test
-    void multipartMessageAcceptsPayloadAsPlainFormField() throws Exception {
-        given(chatService.sendMessage(eq(USER_ID), eq(SESSION_ID), any(), anyList()))
-                .willReturn(new SendMessageResponse(null, null, 1, false));
-
-        mockMvc.perform(multipart("/api/v1/chat-sessions/{sessionId}/messages", SESSION_ID)
-                        .part(new MockPart("payload", "{\"content\":\"사진 보내요\"}".getBytes(StandardCharsets.UTF_8)))
-                        .with(loginUser()))
-                .andExpect(status().isCreated());
-
-        verify(chatService).sendMessage(USER_ID, SESSION_ID, new SendMessageRequest("사진 보내요", null), List.of());
-    }
-
-    @Test
-    void brokenPayloadIsRejected() throws Exception {
-        mockMvc.perform(multipart("/api/v1/chat-sessions/{sessionId}/messages", SESSION_ID)
-                        .part(new MockPart("payload", "{".getBytes(StandardCharsets.UTF_8)))
-                        .with(loginUser()))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"));
-
-        verify(chatService, never()).sendMessage(any(), any(), any(), anyList());
+        verify(chatService).sendMessage(USER_ID, SESSION_ID, new SendMessageRequest("오늘 면접이 걱정돼요.", null));
     }
 
     @Test

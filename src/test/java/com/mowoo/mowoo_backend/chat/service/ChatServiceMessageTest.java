@@ -25,7 +25,6 @@ import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.boot.jpa.test.autoconfigure.TestEntityManager;
 import org.springframework.context.annotation.Import;
-import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.util.List;
@@ -132,7 +131,7 @@ class ChatServiceMessageTest {
         em.persist(new UserCharacter(user, other));
 
         SendMessageResponse response = chatService.sendMessage(
-                user.getId(), session.getId(), new SendMessageRequest("어떻게 하면 좋을까?", other.getId()), List.of());
+                user.getId(), session.getId(), new SendMessageRequest("어떻게 하면 좋을까?", other.getId()));
 
         assertThat(response.assistantMessage().characterId()).isEqualTo(other.getId());
     }
@@ -142,25 +141,16 @@ class ChatServiceMessageTest {
         AiCharacter premium = em.persist(new AiCharacter(uniqueCode(), "퀸 마인드 모우", null, null, true));
 
         assertErrorCode(() -> chatService.sendMessage(user.getId(), session.getId(),
-                        new SendMessageRequest("안녕", premium.getId()), List.of()),
+                        new SendMessageRequest("안녕", premium.getId())),
                 ChatErrorCode.CHARACTER_NOT_OWNED);
     }
 
     @Test
-    void 본문과_사진이_모두_없으면_MESSAGE_EMPTY다() {
+    void 본문이_비어_있으면_MESSAGE_EMPTY다() {
         assertErrorCode(() -> chatService.sendMessage(user.getId(), session.getId(),
-                        new SendMessageRequest("   ", null), List.of()),
+                        new SendMessageRequest("   ", null)),
                 ChatErrorCode.MESSAGE_EMPTY);
         verifyNoInteractions(chatAiClient);
-    }
-
-    @Test
-    void 사진_첨부는_아직_구현_전이다() {
-        MockMultipartFile photo = new MockMultipartFile("files", "photo.jpg", "image/jpeg", new byte[]{1});
-
-        assertThatThrownBy(() -> chatService.sendMessage(user.getId(), session.getId(),
-                new SendMessageRequest(null, null), List.of(photo)))
-                .isInstanceOf(UnsupportedOperationException.class);
     }
 
     @Test
@@ -175,7 +165,7 @@ class ChatServiceMessageTest {
         User otherUser = em.persist(new User("다른 사용자", null, null));
 
         assertErrorCode(() -> chatService.sendMessage(otherUser.getId(), session.getId(),
-                        new SendMessageRequest("안녕", null), List.of()),
+                        new SendMessageRequest("안녕", null)),
                 ChatErrorCode.SESSION_NOT_FOUND);
     }
 
@@ -276,7 +266,7 @@ class ChatServiceMessageTest {
     }
 
     private SendMessageResponse send(String content) {
-        return chatService.sendMessage(user.getId(), session.getId(), new SendMessageRequest(content, null), List.of());
+        return chatService.sendMessage(user.getId(), session.getId(), new SendMessageRequest(content, null));
     }
 
     private void assertErrorCode(Runnable call, Object errorCode) {

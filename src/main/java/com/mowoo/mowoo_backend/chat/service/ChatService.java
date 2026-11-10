@@ -37,7 +37,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Limit;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.multipart.MultipartFile;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -148,8 +147,7 @@ public class ChatService {
                 CommonSuccessCode.CHAT_SESSION_END_SUCCESS, toSessionItem(session, countCompletedTurns(sessionId)));
     }
 
-    // 메시지와 첨부 행은 DB 외래키(ON DELETE CASCADE)로 함께 지워진다.
-    // 저장소의 첨부 파일 정리는 첨부 저장 기능을 연결할 때 추가한다.
+    // 메시지는 DB 외래키(ON DELETE CASCADE)로 함께 지워진다.
     @Transactional
     public void deleteSession(UUID userId, UUID sessionId) {
         sessionRepository.delete(findOwnedSession(userId, sessionId));
@@ -160,15 +158,10 @@ public class ChatService {
     public SendMessageResponse sendMessage(
             UUID userId,
             UUID sessionId,
-            SendMessageRequest request,
-            List<MultipartFile> files
+            SendMessageRequest request
     ) {
-        if (!request.hasContent() && files.isEmpty()) {
+        if (!request.hasContent()) {
             throw new BusinessException(ChatErrorCode.MESSAGE_EMPTY);
-        }
-        if (!files.isEmpty()) {
-            // 사진 첨부는 저장소 연결 후 구현한다.
-            throw notImplemented();
         }
 
         ChatSession session = sessionRepository.findByIdAndUserIdForUpdate(sessionId, userId)
@@ -332,7 +325,7 @@ public class ChatService {
         );
     }
 
-    // 첨부는 저장소 연결 후 만료 URL과 함께, 과거 일기 참조는 일기 엔티티가 생긴 뒤 채운다.
+    // 과거 일기 참조는 일기 엔티티가 생긴 뒤 채운다.
     private ChatMessageResponse toMessageResponse(ChatMessage message) {
         return new ChatMessageResponse(
                 message.getId(),
@@ -342,7 +335,6 @@ public class ChatService {
                 message.getContent(),
                 message.getCreatedAt(),
                 message.getEditedAt(),
-                List.of(),
                 List.of()
         );
     }

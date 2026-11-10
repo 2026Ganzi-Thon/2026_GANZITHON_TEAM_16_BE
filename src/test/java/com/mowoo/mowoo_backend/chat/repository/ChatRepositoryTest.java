@@ -2,7 +2,6 @@ package com.mowoo.mowoo_backend.chat.repository;
 
 import com.mowoo.mowoo_backend.character.entity.AiCharacter;
 import com.mowoo.mowoo_backend.chat.entity.ChatMessage;
-import com.mowoo.mowoo_backend.chat.entity.ChatMessageAttachment;
 import com.mowoo.mowoo_backend.chat.entity.ChatSession;
 import com.mowoo.mowoo_backend.chat.entity.SenderRole;
 import com.mowoo.mowoo_backend.user.entity.User;
@@ -14,7 +13,6 @@ import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabas
 import org.springframework.boot.jpa.test.autoconfigure.TestEntityManager;
 import org.springframework.dao.DataIntegrityViolationException;
 
-import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -34,8 +32,6 @@ class ChatRepositoryTest {
     @Autowired
     private ChatMessageRepository messageRepository;
 
-    @Autowired
-    private ChatMessageAttachmentRepository attachmentRepository;
 
     private User user;
     private AiCharacter character;
@@ -104,22 +100,8 @@ class ChatRepositoryTest {
     }
 
     @Test
-    void 첨부를_메시지별로_정렬_순서대로_읽는다() {
-        ChatMessage message = em.persist(ChatMessage.ofUser(session, 1, null));
-        em.persist(new ChatMessageAttachment(message, "chat/b.jpg", "image/jpeg", 2));
-        em.persist(new ChatMessageAttachment(message, "chat/a.jpg", "image/jpeg", 1));
-
-        List<ChatMessageAttachment> attachments = attachmentRepository.findByMessageIdInOrderBySortOrder(
-                List.of(message.getId()));
-
-        assertThat(attachments).extracting(ChatMessageAttachment::getStorageKey)
-                .containsExactly("chat/a.jpg", "chat/b.jpg");
-    }
-
-    @Test
-    void 세션을_지우면_DB에서_메시지와_첨부도_함께_지워진다() {
-        ChatMessage message = em.persist(ChatMessage.ofUser(session, 1, "사진을 보냈어요."));
-        ChatMessageAttachment attachment = em.persist(new ChatMessageAttachment(message, "chat/a.jpg", "image/jpeg", 1));
+    void 세션을_지우면_DB에서_메시지도_함께_지워진다() {
+        ChatMessage message = em.persist(ChatMessage.ofUser(session, 1, "오늘 면접이 걱정돼요."));
         em.flush();
         em.clear();
 
@@ -130,7 +112,6 @@ class ChatRepositoryTest {
                 .executeUpdate();
 
         assertThat(messageRepository.findById(message.getId())).isEmpty();
-        assertThat(attachmentRepository.findById(attachment.getId())).isEmpty();
     }
 
     private String uniqueCode() {

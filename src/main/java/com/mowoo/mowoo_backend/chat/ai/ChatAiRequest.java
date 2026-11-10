@@ -11,7 +11,6 @@ public record ChatAiRequest(
         List<Message> messages
 ) {
 
-    // 사진만 보낸 메시지는 content가 null일 수 있다.
     public record Message(SenderRole senderRole, String content) {
     }
 }

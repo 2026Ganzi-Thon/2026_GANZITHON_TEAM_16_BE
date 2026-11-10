@@ -93,7 +93,7 @@ class ChatServiceRollbackTest {
         given(chatAiClient.reply(any())).willThrow(new ChatAiException("시간 초과", null));
 
         assertThatThrownBy(() -> chatService.sendMessage(
-                userId, sessionId, new SendMessageRequest("오늘 면접이 걱정돼요.", null), List.of()))
+                userId, sessionId, new SendMessageRequest("오늘 면접이 걱정돼요.", null)))
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(ChatErrorCode.AI_UNAVAILABLE);

@@ -12,7 +12,7 @@ public enum ChatErrorCode implements BaseCode {
     SESSION_NOT_FOUND(HttpStatus.NOT_FOUND, "대화를 찾을 수 없어요."),
     SESSION_CLOSED(HttpStatus.CONFLICT, "이미 종료된 대화예요."),
     CHARACTER_NOT_OWNED(HttpStatus.FORBIDDEN, "보유하지 않은 캐릭터예요."),
-    MESSAGE_EMPTY(HttpStatus.BAD_REQUEST, "메시지 내용이나 사진을 넣어 주세요."),
+    MESSAGE_EMPTY(HttpStatus.BAD_REQUEST, "메시지 내용을 넣어 주세요."),
     MESSAGE_NOT_FOUND(HttpStatus.NOT_FOUND, "메시지를 찾을 수 없어요."),
     MESSAGE_NOT_EDITABLE(HttpStatus.CONFLICT, "가장 최근에 보낸 메시지만 수정할 수 있어요."),
     PAST_DIARY_DISABLED(HttpStatus.FORBIDDEN, "과거 일기 활용 설정이 꺼져 있어요."),

@@ -110,7 +110,6 @@ class ChatDtoJsonTest {
                     "content": "오늘 면접이 걱정돼요.",
                     "createdAt": "2026-11-07T12:00:00Z",
                     "editedAt": null,
-                    "attachments": [],
                     "diaryReferences": []
                   },
                   "assistantMessage": {
@@ -121,7 +120,6 @@ class ChatDtoJsonTest {
                     "content": "어떤 점이 가장 걱정되나요?",
                     "createdAt": "2026-11-07T12:00:00Z",
                     "editedAt": null,
-                    "attachments": [],
                     "diaryReferences": []
                   },
                   "completedTurns": 1,
@@ -161,7 +159,6 @@ class ChatDtoJsonTest {
                         "content": "오늘 면접이 걱정돼요.",
                         "createdAt": "2026-11-07T12:00:00Z",
                         "editedAt": null,
-                        "attachments": [],
                         "diaryReferences": []
                       }
                     ],
@@ -192,7 +189,6 @@ class ChatDtoJsonTest {
                     "content": "두 기록에서 타인의 평가가 걱정된다는 공통점이 보여요.",
                     "createdAt": "2026-11-07T12:00:00Z",
                     "editedAt": null,
-                    "attachments": [],
                     "diaryReferences": [
                       {
                         "diaryId": "a3c8bfe1-0b2a-4891-88c5-d4af752c0033",
@@ -282,7 +278,7 @@ class ChatDtoJsonTest {
 
     private ChatMessageResponse userMessage(String content) {
         return new ChatMessageResponse(
-                USER_MESSAGE_ID, 1, SenderRole.USER, null, content, NOW, null, List.of(), List.of());
+                USER_MESSAGE_ID, 1, SenderRole.USER, null, content, NOW, null, List.of());
     }
 
     private ChatMessageResponse assistantMessage(
@@ -292,7 +288,7 @@ class ChatDtoJsonTest {
     ) {
         return new ChatMessageResponse(
                 ASSISTANT_MESSAGE_ID, sequenceNo, SenderRole.ASSISTANT, CHARACTER_ID, content, NOW, null,
-                List.of(), diaryReferences);
+                diaryReferences);
     }
 
     private void assertJsonEquals(Object response, String expectedJson) {

@@ -57,7 +57,6 @@ public class ChatMessage {
             foreignKey = @ForeignKey(name = "fk_chat_messages_character"))
     private AiCharacter character;
 
-    // 사진만 보낸 사용자 메시지는 null일 수 있다.
     @Column(columnDefinition = "TEXT")
     private String content;
 
