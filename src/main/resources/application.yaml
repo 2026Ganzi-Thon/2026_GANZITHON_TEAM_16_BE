@@ -24,6 +24,17 @@ jwt:
   access-exp-ms: ${JWT_EXPIRATION:3600000}
   refresh-exp-ms: ${JWT_REFRESH_EXPIRATION:1209600000}
 
+kakao:
+  client-id: ${KAKAO_CLIENT_ID}
+  client-secret: ${KAKAO_CLIENT_SECRET}
+  redirect-uri: ${KAKAO_REDIRECT_URI}
+  token-uri: https://kauth.kakao.com/oauth/token
+  user-info-uri: https://kapi.kakao.com/v2/user/me
+
+auth:
+  cookie:
+    secure: ${AUTH_COOKIE_SECURE:true}
+
 app:
   dotenv:
     directory: ${DOTENV_DIRECTORY:.}

@@ -1,7 +1,9 @@
 package com.mowoo.mowoo_backend.global.exception;
 
+import com.mowoo.mowoo_backend.global.code.BaseCode;
 import com.mowoo.mowoo_backend.global.config.JwtConfig;
 import com.mowoo.mowoo_backend.global.config.SecurityConfig;
+import com.mowoo.mowoo_backend.global.response.CommonSuccessCode;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import lombok.Getter;
@@ -48,13 +50,18 @@ class GlobalExceptionHandlerTest {
         mockMvc.perform(get("/test/ok").with(jwt()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.name").value("모우"))
-                .andExpect(jsonPath("$.isSuccess").doesNotExist());
+                .andExpect(jsonPath("$.isSuccess").value(true))
+                .andExpect(jsonPath("$.code").value("SUCCESS"))
+                .andExpect(jsonPath("$.message").value("요청이 처리됐어요."))
+                .andExpect(jsonPath("$.result").doesNotExist());
     }
 
     @Test
     void businessExceptionUsesStatusAndCodeOfErrorCode() throws Exception {
         mockMvc.perform(get("/test/business").with(jwt()))
                 .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.isSuccess").value(false))
+                .andExpect(jsonPath("$.message").value("대화를 찾을 수 없어요."))
                 .andExpect(jsonPath("$.error.code").value("SESSION_NOT_FOUND"))
                 .andExpect(jsonPath("$.error.message").value("대화를 찾을 수 없어요."));
     }
@@ -111,6 +118,8 @@ class GlobalExceptionHandlerTest {
         mockMvc.perform(get("/test/ok"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE, "Bearer"))
+                .andExpect(jsonPath("$.isSuccess").value(false))
+                .andExpect(jsonPath("$.message").value("로그인이 필요해요."))
                 .andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"))
                 .andExpect(jsonPath("$.error.message").value("로그인이 필요해요."));
     }
@@ -128,7 +137,7 @@ class GlobalExceptionHandlerTest {
 
         @GetMapping("/ok")
         TestResponse ok() {
-            return new TestResponse("모우");
+            return new TestResponse(true, CommonSuccessCode.SUCCESS.name(), CommonSuccessCode.SUCCESS.getMessage(), "모우");
         }
 
         @GetMapping("/business")
@@ -154,12 +163,12 @@ class GlobalExceptionHandlerTest {
     record TestRequest(@NotBlank String content) {
     }
 
-    record TestResponse(String name) {
+    record TestResponse(boolean isSuccess, String code, String message, String name) {
     }
 
     @Getter
     @RequiredArgsConstructor
-    enum TestErrorCode implements ErrorCode {
+    enum TestErrorCode implements BaseCode {
 
         SESSION_NOT_FOUND(HttpStatus.NOT_FOUND, "대화를 찾을 수 없어요.");
 
