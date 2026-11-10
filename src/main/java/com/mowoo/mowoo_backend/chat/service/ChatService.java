@@ -10,7 +10,9 @@ import com.mowoo.mowoo_backend.chat.dto.request.SendMessageRequest;
 import com.mowoo.mowoo_backend.chat.dto.request.StartChatSessionRequest;
 import com.mowoo.mowoo_backend.chat.dto.request.UpdateMessageRequest;
 import com.mowoo.mowoo_backend.chat.dto.response.ChatMessageResponse;
+import com.mowoo.mowoo_backend.chat.dto.response.ChatMessagePage;
 import com.mowoo.mowoo_backend.chat.dto.response.ChatSessionDetailResponse;
+import com.mowoo.mowoo_backend.chat.dto.response.ChatSessionItem;
 import com.mowoo.mowoo_backend.chat.dto.response.ChatSessionResponse;
 import com.mowoo.mowoo_backend.chat.dto.response.CreateDiaryReferenceResponse;
 import com.mowoo.mowoo_backend.chat.dto.response.DiarySuggestionResponse;
@@ -26,6 +28,7 @@ import com.mowoo.mowoo_backend.chat.repository.ChatSessionRepository;
 import com.mowoo.mowoo_backend.chat.repository.SessionSenderRole;
 import com.mowoo.mowoo_backend.global.exception.BusinessException;
 import com.mowoo.mowoo_backend.global.request.CursorRequest;
+import com.mowoo.mowoo_backend.global.response.CommonSuccessCode;
 import com.mowoo.mowoo_backend.global.response.CursorResponse;
 import com.mowoo.mowoo_backend.global.response.ListResponse;
 import com.mowoo.mowoo_backend.user.entity.User;
@@ -71,10 +74,10 @@ public class ChatService {
         ));
         // DATETIME은 초 단위로 저장되므로 다시 읽어서 이후 조회와 같은 startedAt을 응답한다.
         entityManager.refresh(session);
-        return toSessionResponse(session, 0);
+        return ChatSessionResponse.of(CommonSuccessCode.CHAT_SESSION_START_SUCCESS, toSessionItem(session, 0));
     }
 
-    public CursorResponse<ChatSessionResponse> getSessions(UUID userId, CursorRequest cursorRequest) {
+    public CursorResponse<ChatSessionItem> getSessions(UUID userId, CursorRequest cursorRequest) {
         int limit = cursorRequest.limit();
         Limit fetchLimit = Limit.of(limit + 1);
 
@@ -90,8 +93,8 @@ public class ChatService {
         List<ChatSession> page = hasNext ? sessions.subList(0, limit) : sessions;
 
         Map<UUID, List<SenderRole>> senderRolesBySession = findSenderRolesBySession(page);
-        List<ChatSessionResponse> items = page.stream()
-                .map(session -> toSessionResponse(session, ChatTurnPolicy.countCompletedTurns(
+        List<ChatSessionItem> items = page.stream()
+                .map(session -> toSessionItem(session, ChatTurnPolicy.countCompletedTurns(
                         senderRolesBySession.getOrDefault(session.getId(), List.of()))))
                 .toList();
 
@@ -100,7 +103,7 @@ public class ChatService {
             ChatSession last = page.getLast();
             nextCursor = ChatCursor.encodeSession(last.getStartedAt(), last.getId());
         }
-        return new CursorResponse<>(items, nextCursor);
+        return new CursorResponse<>(CommonSuccessCode.CHAT_SESSION_LIST_READ_SUCCESS, items, nextCursor);
     }
 
     // 메시지는 최근 것부터 페이지를 나누고, 한 페이지 안에서는 순번 오름차순으로 돌려준다.
@@ -127,8 +130,8 @@ public class ChatService {
                 .toList();
 
         return new ChatSessionDetailResponse(
-                toSessionResponse(session, countCompletedTurns(sessionId)),
-                new CursorResponse<>(items, nextCursor)
+                toSessionItem(session, countCompletedTurns(sessionId)),
+                new ChatMessagePage(items, nextCursor)
         );
     }
 
@@ -141,7 +144,8 @@ public class ChatService {
             // DATETIME은 초 단위로 저장되므로 응답과 저장 값이 같도록 초 단위로 자른다.
             session.end(null, null, Instant.now().truncatedTo(ChronoUnit.SECONDS));
         }
-        return toSessionResponse(session, countCompletedTurns(sessionId));
+        return ChatSessionResponse.of(
+                CommonSuccessCode.CHAT_SESSION_END_SUCCESS, toSessionItem(session, countCompletedTurns(sessionId)));
     }
 
     // 메시지와 첨부 행은 DB 외래키(ON DELETE CASCADE)로 함께 지워진다.
@@ -315,8 +319,8 @@ public class ChatService {
                 ));
     }
 
-    private ChatSessionResponse toSessionResponse(ChatSession session, int completedTurns) {
-        return new ChatSessionResponse(
+    private ChatSessionItem toSessionItem(ChatSession session, int completedTurns) {
+        return new ChatSessionItem(
                 session.getId(),
                 session.getCharacter().getId(),
                 session.getTitle(),

@@ -6,6 +6,7 @@ import com.mowoo.mowoo_backend.chat.ai.StubChatAiClient;
 import com.mowoo.mowoo_backend.chat.dto.request.StartChatSessionRequest;
 import com.mowoo.mowoo_backend.chat.dto.response.ChatMessageResponse;
 import com.mowoo.mowoo_backend.chat.dto.response.ChatSessionDetailResponse;
+import com.mowoo.mowoo_backend.chat.dto.response.ChatSessionItem;
 import com.mowoo.mowoo_backend.chat.dto.response.ChatSessionResponse;
 import com.mowoo.mowoo_backend.chat.entity.ChatMessage;
 import com.mowoo.mowoo_backend.chat.entity.ChatSession;
@@ -58,6 +59,8 @@ class ChatServiceSessionTest {
     void 보유한_캐릭터로_대화를_시작한다() {
         ChatSessionResponse response = chatService.startSession(user.getId(), new StartChatSessionRequest(character.getId()));
 
+        assertThat(response.isSuccess()).isTrue();
+        assertThat(response.code()).isEqualTo("CHAT_SESSION_START_SUCCESS");
         assertThat(response.id()).isNotNull();
         assertThat(response.characterId()).isEqualTo(character.getId());
         assertThat(response.title()).isNull();
@@ -73,7 +76,7 @@ class ChatServiceSessionTest {
         ChatSessionResponse started = chatService.startSession(user.getId(), new StartChatSessionRequest(character.getId()));
         em.clear();
 
-        ChatSessionResponse found = chatService.getSession(user.getId(), started.id(), new CursorRequest(null, null))
+        ChatSessionItem found = chatService.getSession(user.getId(), started.id(), new CursorRequest(null, null))
                 .session();
 
         assertThat(found.startedAt()).isEqualTo(started.startedAt());
@@ -102,13 +105,13 @@ class ChatServiceSessionTest {
         ChatSession middle = sessionStartedAt(base.plus(1, ChronoUnit.DAYS));
         ChatSession latest = sessionStartedAt(base.plus(2, ChronoUnit.DAYS));
 
-        CursorResponse<ChatSessionResponse> first = chatService.getSessions(user.getId(), new CursorRequest(2, null));
-        CursorResponse<ChatSessionResponse> second = chatService.getSessions(
+        CursorResponse<ChatSessionItem> first = chatService.getSessions(user.getId(), new CursorRequest(2, null));
+        CursorResponse<ChatSessionItem> second = chatService.getSessions(
                 user.getId(), new CursorRequest(2, first.nextCursor()));
 
-        assertThat(first.items()).extracting(ChatSessionResponse::id).containsExactly(latest.getId(), middle.getId());
+        assertThat(first.items()).extracting(ChatSessionItem::id).containsExactly(latest.getId(), middle.getId());
         assertThat(first.nextCursor()).isNotNull();
-        assertThat(second.items()).extracting(ChatSessionResponse::id).containsExactly(oldest.getId());
+        assertThat(second.items()).extracting(ChatSessionItem::id).containsExactly(oldest.getId());
         assertThat(second.nextCursor()).isNull();
     }
 
@@ -120,12 +123,12 @@ class ChatServiceSessionTest {
                 sessionStartedAt(sameTime).getId(),
                 sessionStartedAt(sameTime).getId());
 
-        CursorResponse<ChatSessionResponse> first = chatService.getSessions(user.getId(), new CursorRequest(2, null));
-        CursorResponse<ChatSessionResponse> second = chatService.getSessions(
+        CursorResponse<ChatSessionItem> first = chatService.getSessions(user.getId(), new CursorRequest(2, null));
+        CursorResponse<ChatSessionItem> second = chatService.getSessions(
                 user.getId(), new CursorRequest(2, first.nextCursor()));
 
-        List<UUID> read = new ArrayList<>(first.items().stream().map(ChatSessionResponse::id).toList());
-        read.addAll(second.items().stream().map(ChatSessionResponse::id).toList());
+        List<UUID> read = new ArrayList<>(first.items().stream().map(ChatSessionItem::id).toList());
+        read.addAll(second.items().stream().map(ChatSessionItem::id).toList());
         assertThat(read).containsExactlyInAnyOrderElementsOf(ids).doesNotHaveDuplicates();
         assertThat(second.nextCursor()).isNull();
     }
@@ -137,7 +140,7 @@ class ChatServiceSessionTest {
         ChatSession session = em.persist(new ChatSession(user, character));
         addTurns(session, 5);
 
-        CursorResponse<ChatSessionResponse> response = chatService.getSessions(
+        CursorResponse<ChatSessionItem> response = chatService.getSessions(
                 user.getId(), new CursorRequest(null, null));
 
         assertThat(response.items()).singleElement().satisfies(item -> {
@@ -207,6 +210,7 @@ class ChatServiceSessionTest {
         em.clear();
         ChatSessionResponse endedAgain = chatService.endSession(user.getId(), session.getId());
 
+        assertThat(ended.code()).isEqualTo("CHAT_SESSION_END_SUCCESS");
         assertThat(ended.endedAt()).isNotNull();
         assertThat(ended.completedTurns()).isEqualTo(2);
         assertThat(endedAgain).isEqualTo(ended);

@@ -6,6 +6,7 @@ import com.mowoo.mowoo_backend.chat.dto.request.StartChatSessionRequest;
 import com.mowoo.mowoo_backend.chat.dto.request.UpdateChatSessionRequest;
 import com.mowoo.mowoo_backend.chat.dto.request.UpdateMessageRequest;
 import com.mowoo.mowoo_backend.chat.dto.response.ChatSessionDetailResponse;
+import com.mowoo.mowoo_backend.chat.dto.response.ChatSessionItem;
 import com.mowoo.mowoo_backend.chat.dto.response.ChatSessionResponse;
 import com.mowoo.mowoo_backend.chat.dto.response.CreateDiaryReferenceResponse;
 import com.mowoo.mowoo_backend.chat.dto.response.DiarySuggestionResponse;
@@ -15,8 +16,10 @@ import com.mowoo.mowoo_backend.chat.service.ChatService;
 import com.mowoo.mowoo_backend.global.exception.BusinessException;
 import com.mowoo.mowoo_backend.global.exception.CommonErrorCode;
 import com.mowoo.mowoo_backend.global.request.CursorRequest;
+import com.mowoo.mowoo_backend.global.response.CommonSuccessCode;
 import com.mowoo.mowoo_backend.global.response.CursorResponse;
 import com.mowoo.mowoo_backend.global.response.ListResponse;
+import com.mowoo.mowoo_backend.global.response.SuccessResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -65,7 +68,7 @@ public class ChatSessionController {
 
     @Operation(summary = "대화 보관함 조회", description = "대화 세션 목록을 최신순으로 조회합니다.")
     @GetMapping
-    public CursorResponse<ChatSessionResponse> getSessions(
+    public CursorResponse<ChatSessionItem> getSessions(
             @AuthenticationPrincipal Jwt jwt,
             @Valid @ParameterObject CursorRequest cursorRequest
     ) {
@@ -96,12 +99,12 @@ public class ChatSessionController {
 
     @Operation(summary = "대화 삭제", description = "세션·메시지·첨부를 삭제합니다. 이 대화로 만든 일기는 남습니다.")
     @DeleteMapping("/{sessionId}")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void deleteSession(
+    public SuccessResponse deleteSession(
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable UUID sessionId
     ) {
         chatService.deleteSession(userId(jwt), sessionId);
+        return SuccessResponse.of(CommonSuccessCode.CHAT_SESSION_DELETE_SUCCESS);
     }
 
     @Operation(summary = "메시지 전송", description = "사용자 메시지와 AI 응답을 저장하고 대화 진행도를 반환합니다.")

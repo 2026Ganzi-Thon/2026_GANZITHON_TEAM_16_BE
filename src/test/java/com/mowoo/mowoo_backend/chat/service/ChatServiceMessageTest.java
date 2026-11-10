@@ -72,6 +72,8 @@ class ChatServiceMessageTest {
     void 메시지를_보내면_사용자_메시지와_AI_응답을_이어서_저장한다() {
         SendMessageResponse response = send("오늘 면접이 걱정돼요.");
 
+        assertThat(response.isSuccess()).isTrue();
+        assertThat(response.code()).isEqualTo("CHAT_MESSAGE_SEND_SUCCESS");
         assertThat(response.userMessage().sequenceNo()).isEqualTo(1);
         assertThat(response.userMessage().senderRole()).isEqualTo(SenderRole.USER);
         assertThat(response.userMessage().characterId()).isNull();
@@ -192,6 +194,7 @@ class ChatServiceMessageTest {
         UpdateMessageResponse response = chatService.updateMessage(
                 user.getId(), session.getId(), sent.userMessage().id(), new UpdateMessageRequest("오늘 발표가 걱정돼요."));
 
+        assertThat(response.code()).isEqualTo("CHAT_MESSAGE_UPDATE_SUCCESS");
         assertThat(response.userMessage().id()).isEqualTo(sent.userMessage().id());
         assertThat(response.userMessage().content()).isEqualTo("오늘 발표가 걱정돼요.");
         assertThat(response.userMessage().editedAt()).isNotNull();

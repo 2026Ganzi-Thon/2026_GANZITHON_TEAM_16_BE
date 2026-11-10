@@ -1,13 +1,13 @@
 package com.mowoo.mowoo_backend.chat.exception;
 
-import com.mowoo.mowoo_backend.global.exception.ErrorCode;
+import com.mowoo.mowoo_backend.global.code.BaseCode;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 
 @Getter
 @RequiredArgsConstructor
-public enum ChatErrorCode implements ErrorCode {
+public enum ChatErrorCode implements BaseCode {
 
     SESSION_NOT_FOUND(HttpStatus.NOT_FOUND, "대화를 찾을 수 없어요."),
     SESSION_CLOSED(HttpStatus.CONFLICT, "이미 종료된 대화예요."),

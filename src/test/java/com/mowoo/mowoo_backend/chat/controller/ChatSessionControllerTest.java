@@ -4,7 +4,9 @@ import com.mowoo.mowoo_backend.chat.dto.request.CreateDiaryReferenceRequest;
 import com.mowoo.mowoo_backend.chat.dto.request.SendMessageRequest;
 import com.mowoo.mowoo_backend.chat.dto.request.StartChatSessionRequest;
 import com.mowoo.mowoo_backend.chat.dto.request.UpdateMessageRequest;
+import com.mowoo.mowoo_backend.chat.dto.response.ChatMessagePage;
 import com.mowoo.mowoo_backend.chat.dto.response.ChatSessionDetailResponse;
+import com.mowoo.mowoo_backend.chat.dto.response.ChatSessionItem;
 import com.mowoo.mowoo_backend.chat.dto.response.ChatSessionResponse;
 import com.mowoo.mowoo_backend.chat.dto.response.CreateDiaryReferenceResponse;
 import com.mowoo.mowoo_backend.chat.dto.response.SendMessageResponse;
@@ -14,6 +16,7 @@ import com.mowoo.mowoo_backend.global.config.JwtConfig;
 import com.mowoo.mowoo_backend.global.config.SecurityConfig;
 import com.mowoo.mowoo_backend.global.exception.SecurityErrorHandler;
 import com.mowoo.mowoo_backend.global.request.CursorRequest;
+import com.mowoo.mowoo_backend.global.response.CommonSuccessCode;
 import com.mowoo.mowoo_backend.global.response.CursorResponse;
 import com.mowoo.mowoo_backend.global.response.ListResponse;
 import org.junit.jupiter.api.Test;
@@ -49,7 +52,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -63,8 +65,10 @@ class ChatSessionControllerTest {
     private static final UUID CHARACTER_ID = UUID.fromString("a3c8bfe1-0b2a-4891-88c5-d4af752c0022");
     private static final UUID MESSAGE_ID = UUID.fromString("a3c8bfe1-0b2a-4891-88c5-d4af752c0033");
     private static final UUID DIARY_ID = UUID.fromString("a3c8bfe1-0b2a-4891-88c5-d4af752c0044");
-    private static final ChatSessionResponse SESSION = new ChatSessionResponse(
+    private static final ChatSessionItem SESSION_ITEM = new ChatSessionItem(
             SESSION_ID, CHARACTER_ID, null, null, Instant.parse("2026-11-07T12:00:00Z"), null, 0, false);
+    private static final ChatSessionResponse SESSION =
+            ChatSessionResponse.of(CommonSuccessCode.CHAT_SESSION_START_SUCCESS, SESSION_ITEM);
 
     @Autowired
     private MockMvc mockMvc;
@@ -80,6 +84,8 @@ class ChatSessionControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"characterId\":\"" + CHARACTER_ID + "\"}"))
                 .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.isSuccess").value(true))
+                .andExpect(jsonPath("$.code").value("CHAT_SESSION_START_SUCCESS"))
                 .andExpect(jsonPath("$.id").value(SESSION_ID.toString()))
                 .andExpect(jsonPath("$.completedTurns").value(0));
 
@@ -92,6 +98,7 @@ class ChatSessionControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{}"))
                 .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.isSuccess").value(false))
                 .andExpect(jsonPath("$.error.code").value("VALIDATION_ERROR"));
 
         verifyNoInteractions(chatService);
@@ -99,7 +106,8 @@ class ChatSessionControllerTest {
 
     @Test
     void sessionListUsesDefaultLimit() throws Exception {
-        given(chatService.getSessions(eq(USER_ID), any())).willReturn(new CursorResponse<>(List.of(SESSION), null));
+        given(chatService.getSessions(eq(USER_ID), any())).willReturn(new CursorResponse<>(
+                CommonSuccessCode.CHAT_SESSION_LIST_READ_SUCCESS, List.of(SESSION_ITEM), null));
 
         mockMvc.perform(get("/api/v1/chat-sessions").with(loginUser()))
                 .andExpect(status().isOk())
@@ -123,7 +131,7 @@ class ChatSessionControllerTest {
     @Test
     void sessionDetailPassesCursor() throws Exception {
         given(chatService.getSession(eq(USER_ID), eq(SESSION_ID), any()))
-                .willReturn(new ChatSessionDetailResponse(SESSION, new CursorResponse<>(List.of(), null)));
+                .willReturn(new ChatSessionDetailResponse(SESSION_ITEM, new ChatMessagePage(List.of(), null)));
 
         mockMvc.perform(get("/api/v1/chat-sessions/{sessionId}", SESSION_ID).with(loginUser())
                         .param("limit", "50")
@@ -158,10 +166,12 @@ class ChatSessionControllerTest {
     }
 
     @Test
-    void deleteSessionReturnsNoContent() throws Exception {
+    void deleteSessionReturnsSuccessResponse() throws Exception {
         mockMvc.perform(delete("/api/v1/chat-sessions/{sessionId}", SESSION_ID).with(loginUser()))
-                .andExpect(status().isNoContent())
-                .andExpect(content().string(""));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.isSuccess").value(true))
+                .andExpect(jsonPath("$.code").value("CHAT_SESSION_DELETE_SUCCESS"))
+                .andExpect(jsonPath("$.message").value("대화를 삭제했어요."));
 
         verify(chatService).deleteSession(USER_ID, SESSION_ID);
     }
