@@ -1,5 +1,6 @@
 package com.mowoo.mowoo_backend.global.exception;
 
+import com.mowoo.mowoo_backend.global.code.BaseCode;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatusCode;
@@ -50,13 +51,13 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
             return null;
         }
 
-        ErrorCode errorCode = toErrorCode(statusCode);
+        BaseCode errorCode = toErrorCode(statusCode);
         return ResponseEntity.status(errorCode.getStatus())
                 .headers(response.getHeaders())
                 .body(ErrorResponse.of(errorCode));
     }
 
-    private ErrorCode toErrorCode(HttpStatusCode statusCode) {
+    private BaseCode toErrorCode(HttpStatusCode statusCode) {
         return switch (statusCode.value()) {
             case 404 -> CommonErrorCode.NOT_FOUND;
             case 405 -> CommonErrorCode.METHOD_NOT_ALLOWED;
@@ -68,7 +69,7 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         };
     }
 
-    private ResponseEntity<ErrorResponse> toResponse(ErrorCode errorCode) {
+    private ResponseEntity<ErrorResponse> toResponse(BaseCode errorCode) {
         return ResponseEntity.status(errorCode.getStatus())
                 .body(ErrorResponse.of(errorCode));
     }

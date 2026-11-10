@@ -33,6 +33,9 @@ public class User {
     @Column(length = 254)
     private String email;
 
+    @Column(name = "profile_image_url", length = 2048)
+    private String profileImageUrl;
+
     @Column(name = "birth_date")
     private LocalDate birthDate;
 
@@ -53,5 +56,20 @@ public class User {
         this.nickname = nickname;
         this.email = email;
         this.birthDate = birthDate;
+    }
+
+    public void updateProfile(
+            String nickname, String email, LocalDate birthDate,
+            boolean usePastDiaries, boolean eveningReminderEnabled
+    ) {
+        this.nickname = nickname;
+        this.email = email;
+        this.birthDate = birthDate;
+        this.usePastDiaries = usePastDiaries;
+        this.eveningReminderEnabled = eveningReminderEnabled;
+    }
+
+    public void updateProfileImageUrl(String profileImageUrl) {
+        this.profileImageUrl = profileImageUrl;
     }
 }

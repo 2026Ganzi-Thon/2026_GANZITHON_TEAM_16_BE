@@ -34,6 +34,7 @@ public class SecurityConfig {
                 // Spring Security의 기본 로그인 방식을 끄는 설정
                 .formLogin(form -> form.disable())
                 .httpBasic(basic -> basic.disable())
+                .logout(logout -> logout.disable())
                 .sessionManagement(session -> session
                         .sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth

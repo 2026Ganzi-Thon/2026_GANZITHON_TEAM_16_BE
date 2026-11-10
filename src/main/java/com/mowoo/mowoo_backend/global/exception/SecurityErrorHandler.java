@@ -1,5 +1,6 @@
 package com.mowoo.mowoo_backend.global.exception;
 
+import com.mowoo.mowoo_backend.global.code.BaseCode;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -41,7 +42,7 @@ public class SecurityErrorHandler implements AuthenticationEntryPoint, AccessDen
         write(response, CommonErrorCode.FORBIDDEN);
     }
 
-    private void write(HttpServletResponse response, ErrorCode errorCode) throws IOException {
+    private void write(HttpServletResponse response, BaseCode errorCode) throws IOException {
         response.setStatus(errorCode.getStatus().value());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
         response.setCharacterEncoding(StandardCharsets.UTF_8.name());

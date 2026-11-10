@@ -1,12 +1,13 @@
 package com.mowoo.mowoo_backend.global.exception;
 
+import com.mowoo.mowoo_backend.global.code.BaseCode;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 
 @Getter
 @RequiredArgsConstructor
-public enum CommonErrorCode implements ErrorCode {
+public enum CommonErrorCode implements BaseCode {
 
     VALIDATION_ERROR(HttpStatus.BAD_REQUEST, "요청 값을 확인해 주세요."),
     UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "로그인이 필요해요."),
