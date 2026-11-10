@@ -5,6 +5,7 @@ import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Limit;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -22,6 +23,10 @@ public interface ChatSessionRepository extends JpaRepository<ChatSession, UUID> 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select s from ChatSession s where s.id = :id and s.user.id = :userId")
     Optional<ChatSession> findByIdAndUserIdForUpdate(@Param("id") UUID id, @Param("userId") UUID userId);
+
+    @Modifying
+    @Query("delete from ChatSession s where s.user.id = :userId")
+    void deleteAllForUser(@Param("userId") UUID userId);
 
     // 보관함 첫 페이지. 최신순이고 시작 시각이 같으면 id 역순이다.
     @Query("""
