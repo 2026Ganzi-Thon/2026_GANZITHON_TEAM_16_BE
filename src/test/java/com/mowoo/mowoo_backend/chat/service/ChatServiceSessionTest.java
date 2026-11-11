@@ -2,7 +2,7 @@ package com.mowoo.mowoo_backend.chat.service;
 
 import com.mowoo.mowoo_backend.character.entity.AiCharacter;
 import com.mowoo.mowoo_backend.character.entity.UserCharacter;
-import com.mowoo.mowoo_backend.chat.ai.StubChatAiClient;
+import com.mowoo.mowoo_backend.chat.ai.ChatAiClient;
 import com.mowoo.mowoo_backend.chat.dto.request.StartChatSessionRequest;
 import com.mowoo.mowoo_backend.chat.dto.response.ChatMessageResponse;
 import com.mowoo.mowoo_backend.chat.dto.response.ChatSessionDetailResponse;
@@ -23,6 +23,7 @@ import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
 import org.springframework.boot.jpa.test.autoconfigure.TestEntityManager;
 import org.springframework.context.annotation.Import;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -36,7 +37,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 // 로컬 MySQL에서 실행하고 테스트마다 롤백한다.
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Import({ChatService.class, StubChatAiClient.class})
+@Import(ChatService.class)
 class ChatServiceSessionTest {
 
     @Autowired
@@ -44,6 +45,9 @@ class ChatServiceSessionTest {
 
     @Autowired
     private ChatService chatService;
+
+    @MockitoBean
+    private ChatAiClient chatAiClient;
 
     private User user;
     private AiCharacter character;
