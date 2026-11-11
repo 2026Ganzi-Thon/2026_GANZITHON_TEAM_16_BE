@@ -1,5 +1,6 @@
 package com.mowoo.mowoo_backend.login.service;
 
+import com.mowoo.mowoo_backend.character.service.DefaultCharacterService;
 import com.mowoo.mowoo_backend.global.exception.BusinessException;
 import com.mowoo.mowoo_backend.login.client.KakaoClient;
 import com.mowoo.mowoo_backend.login.domain.RefreshToken;
@@ -32,6 +33,7 @@ import java.util.UUID;
 public class AuthService {
 
     private final KakaoClient kakaoClient;
+    private final DefaultCharacterService defaultCharacterService;
     private final UserRepository userRepository;
     private final UserAuthIdentityRepository identityRepository;
     private final RefreshTokenRepository refreshTokenRepository;
@@ -40,7 +42,11 @@ public class AuthService {
 
     public LoginResult handleKakaoCode(String code) {
         KakaoClient.KakaoUser kakaoUser = kakaoClient.getUser(code);
-        return transactions.execute(status -> issueTokens(findOrCreateUser(kakaoUser)));
+        return transactions.execute(status -> {
+            User user = findOrCreateUser(kakaoUser);
+            defaultCharacterService.grantTo(user);
+            return issueTokens(user);
+        });
     }
 
     @Transactional(readOnly = true)

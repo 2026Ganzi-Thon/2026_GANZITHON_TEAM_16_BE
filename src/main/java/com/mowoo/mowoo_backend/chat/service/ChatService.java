@@ -2,6 +2,7 @@ package com.mowoo.mowoo_backend.chat.service;
 
 import com.mowoo.mowoo_backend.character.entity.AiCharacter;
 import com.mowoo.mowoo_backend.character.entity.UserCharacter;
+import com.mowoo.mowoo_backend.character.repository.UserCharacterRepository;
 import com.mowoo.mowoo_backend.chat.ai.ChatAiClient;
 import com.mowoo.mowoo_backend.chat.ai.ChatAiException;
 import com.mowoo.mowoo_backend.chat.ai.ChatAiRequest;
@@ -22,7 +23,6 @@ import com.mowoo.mowoo_backend.chat.entity.ChatMessage;
 import com.mowoo.mowoo_backend.chat.entity.ChatSession;
 import com.mowoo.mowoo_backend.chat.entity.SenderRole;
 import com.mowoo.mowoo_backend.chat.exception.ChatErrorCode;
-import com.mowoo.mowoo_backend.chat.repository.CharacterOwnershipRepository;
 import com.mowoo.mowoo_backend.chat.repository.ChatMessageRepository;
 import com.mowoo.mowoo_backend.chat.repository.ChatSessionRepository;
 import com.mowoo.mowoo_backend.chat.repository.SessionSenderRole;
@@ -55,14 +55,14 @@ public class ChatService {
 
     private final ChatSessionRepository sessionRepository;
     private final ChatMessageRepository messageRepository;
-    private final CharacterOwnershipRepository characterOwnershipRepository;
+    private final UserCharacterRepository userCharacterRepository;
     private final ChatAiClient chatAiClient;
     private final EntityManager entityManager;
 
     @Transactional
     public ChatSessionResponse startSession(UUID userId, StartChatSessionRequest request) {
         UUID characterId = request.characterId();
-        if (!characterOwnershipRepository.existsById(new UserCharacter.Id(userId, characterId))) {
+        if (!userCharacterRepository.existsById(new UserCharacter.Id(userId, characterId))) {
             throw new BusinessException(ChatErrorCode.CHARACTER_NOT_OWNED);
         }
 
@@ -151,6 +151,11 @@ public class ChatService {
     @Transactional
     public void deleteSession(UUID userId, UUID sessionId) {
         sessionRepository.delete(findOwnedSession(userId, sessionId));
+    }
+
+    @Transactional
+    public void deleteAllSessions(UUID userId) {
+        sessionRepository.deleteAllForUser(userId);
     }
 
     // AI 응답까지 만들어야 한 왕복으로 저장한다. AI가 실패하면 사용자 메시지도 저장하지 않는다(롤백).
@@ -275,7 +280,7 @@ public class ChatService {
         if (characterId == null || characterId.equals(session.getCharacter().getId())) {
             return session.getCharacter();
         }
-        if (!characterOwnershipRepository.existsById(new UserCharacter.Id(userId, characterId))) {
+        if (!userCharacterRepository.existsById(new UserCharacter.Id(userId, characterId))) {
             throw new BusinessException(ChatErrorCode.CHARACTER_NOT_OWNED);
         }
         return entityManager.find(AiCharacter.class, characterId);
