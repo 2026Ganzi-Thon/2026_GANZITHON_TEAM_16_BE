@@ -1,5 +1,12 @@
 HELP.md
 .env
+.env.*
+!.env.example
+
+# Local Spring Boot settings (may contain secrets)
+application-local*.yaml
+application-local*.yml
+
 .gradle
 build/
 !gradle/wrapper/gradle-wrapper.jar

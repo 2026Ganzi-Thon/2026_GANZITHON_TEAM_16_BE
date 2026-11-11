@@ -52,3 +52,18 @@ cloud:
       bucket: ${AWS_S3_BUCKET}
       path:
         location: ${AWS_S3_LOCATION:uploads}
+
+# Shared settings contain references only; actual credentials stay in the local .env.
+upstage:
+  api-key: ${UPSTAGE_API_KEY:}
+  model: ${UPSTAGE_MODEL:solar-pro4}
+  base-url: ${UPSTAGE_BASE_URL:https://api.upstage.ai/v1}
+  enabled: ${UPSTAGE_ENABLED:false}
+  connect-timeout-ms: ${UPSTAGE_CONNECT_TIMEOUT_MS:3000}
+  read-timeout-ms: ${UPSTAGE_READ_TIMEOUT_MS:30000}
+  max-output-tokens: ${UPSTAGE_MAX_OUTPUT_TOKENS:2048}
+
+mowoo:
+  emotion:
+    seed:
+      enabled: ${MOWOO_EMOTION_SEED_ENABLED:false}
