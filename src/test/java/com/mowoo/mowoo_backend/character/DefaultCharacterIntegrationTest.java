@@ -6,6 +6,8 @@ import com.mowoo.mowoo_backend.character.repository.AiCharacterRepository;
 import com.mowoo.mowoo_backend.character.repository.UserCharacterRepository;
 import com.mowoo.mowoo_backend.character.service.DefaultCharacterService;
 import com.mowoo.mowoo_backend.chat.repository.ChatMessageRepository;
+import com.mowoo.mowoo_backend.chat.ai.ChatAiClient;
+import com.mowoo.mowoo_backend.chat.ai.ChatSummaryAiClient;
 import com.mowoo.mowoo_backend.chat.service.ChatService;
 import com.mowoo.mowoo_backend.login.client.KakaoClient;
 import com.mowoo.mowoo_backend.user.repository.UserRepository;
@@ -28,6 +30,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -69,8 +72,17 @@ class DefaultCharacterIntegrationTest {
     @MockitoBean
     private KakaoClient kakaoClient;
 
+    @MockitoBean
+    private ChatAiClient chatAiClient;
+
+    @MockitoBean
+    private ChatSummaryAiClient chatSummaryAiClient;
+
     @Test
     void loginGrantsDefaultsAndAllowsChatRightAway() throws Exception {
+        when(chatAiClient.reply(any())).thenReturn("테스트 답변");
+        when(chatSummaryAiClient.summarize(any()))
+                .thenReturn(new ChatSummaryAiClient.Summary("테스트 대화", "테스트 요약"));
         var defaults = characterRepository.findByCodeInAndPremiumFalse(DEFAULT_CODES);
         assertThat(defaults).extracting(AiCharacter::getName)
                 .containsExactlyInAnyOrder("다정한 모우", "냉철한 모우", "유쾌한 모우");

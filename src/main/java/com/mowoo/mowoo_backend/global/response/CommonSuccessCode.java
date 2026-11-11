@@ -16,6 +16,8 @@ public enum CommonSuccessCode implements BaseCode {
     LOGOUT_SUCCESS(HttpStatus.OK, "로그아웃했어요."),
     USER_PROFILE_READ_SUCCESS(HttpStatus.OK, "프로필 조회가 완료됐어요."),
     USER_PROFILE_UPDATE_SUCCESS(HttpStatus.OK, "프로필 수정이 완료됐어요."),
+    CHARACTER_LIST_READ_SUCCESS(HttpStatus.OK, "캐릭터 목록 조회가 완료됐어요."),
+    CHARACTER_READ_SUCCESS(HttpStatus.OK, "캐릭터 조회가 완료됐어요."),
     CHAT_SESSION_START_SUCCESS(HttpStatus.CREATED, "대화를 시작했어요."),
     CHAT_SESSION_LIST_READ_SUCCESS(HttpStatus.OK, "대화 보관함 조회가 완료됐어요."),
     CHAT_SESSION_READ_SUCCESS(HttpStatus.OK, "대화 조회가 완료됐어요."),
