@@ -15,8 +15,10 @@ import com.mowoo.mowoo_backend.chat.dto.response.ChatSessionItem;
 import com.mowoo.mowoo_backend.chat.dto.response.ChatSessionResponse;
 import com.mowoo.mowoo_backend.chat.entity.ChatMessage;
 import com.mowoo.mowoo_backend.chat.entity.ChatSession;
+import com.mowoo.mowoo_backend.chat.entity.DiaryReference;
 import com.mowoo.mowoo_backend.chat.entity.SenderRole;
 import com.mowoo.mowoo_backend.chat.exception.ChatErrorCode;
+import com.mowoo.mowoo_backend.diary.entity.Diary;
 import com.mowoo.mowoo_backend.global.exception.BusinessException;
 import com.mowoo.mowoo_backend.global.exception.CommonErrorCode;
 import com.mowoo.mowoo_backend.global.request.CursorRequest;
@@ -33,6 +35,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
@@ -318,6 +321,44 @@ class ChatServiceSessionTest {
 
         assertThat(em.find(ChatSession.class, session.getId())).isNull();
         assertThat(em.find(ChatMessage.class, message.getId())).isNull();
+    }
+
+    @Test
+    void 대화를_모두_지우면_메시지와_일기_참조도_지워지고_일기는_남는다() {
+        ChatSession withReference = em.persist(new ChatSession(user, character));
+        ChatMessage concern = em.persist(ChatMessage.ofUser(withReference, 1, "발표가 걱정돼요."));
+        ChatMessage comparison = em.persist(ChatMessage.ofAssistant(withReference, 2, character, "비교 답변"));
+        Diary referenced = em.persist(new Diary(user, LocalDate.of(2026, 9, 15), "발표를 앞둔 날", "본문", Instant.now()));
+        em.persist(new DiaryReference(comparison, referenced, Instant.now().truncatedTo(ChronoUnit.SECONDS)));
+        ChatSession diarySource = em.persist(new ChatSession(user, character));
+        Diary fromChat = em.persist(Diary.draft(user, diarySource, LocalDate.of(2026, 11, 7), "대화로 만든 일기", "본문"));
+        User otherUser = em.persist(new User("다른 사용자", null, null));
+        ChatSession othersSession = em.persist(new ChatSession(otherUser, character));
+        ChatMessage othersMessage = em.persist(ChatMessage.ofUser(othersSession, 1, "다른 사용자 메시지"));
+        em.flush();
+        em.clear();
+
+        chatService.deleteAllSessions(user.getId());
+        em.clear();
+
+        assertThat(em.find(ChatSession.class, withReference.getId())).isNull();
+        assertThat(em.find(ChatSession.class, diarySource.getId())).isNull();
+        assertThat(em.find(ChatMessage.class, concern.getId())).isNull();
+        assertThat(em.find(ChatMessage.class, comparison.getId())).isNull();
+        assertThat(em.find(DiaryReference.class, new DiaryReference.Id(comparison.getId(), referenced.getId()))).isNull();
+        // 일기는 남고, 대화로 만든 일기는 원본 대화 연결만 비워진다.
+        assertThat(em.find(Diary.class, referenced.getId())).isNotNull();
+        assertThat(em.find(Diary.class, fromChat.getId()).getSourceSession()).isNull();
+        assertThat(em.find(ChatSession.class, othersSession.getId())).isNotNull();
+        assertThat(em.find(ChatMessage.class, othersMessage.getId())).isNotNull();
+        assertThat(chatService.getSessions(user.getId(), new CursorRequest(null, null)).items()).isEmpty();
+    }
+
+    @Test
+    void 대화가_없는_사용자의_대화를_모두_지워도_오류가_없다() {
+        chatService.deleteAllSessions(user.getId());
+
+        assertThat(chatService.getSessions(user.getId(), new CursorRequest(null, null)).items()).isEmpty();
     }
 
     private ChatSession sessionStartedAt(Instant startedAt) {
