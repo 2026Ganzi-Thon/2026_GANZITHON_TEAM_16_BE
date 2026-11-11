@@ -4,8 +4,6 @@ import com.mowoo.mowoo_backend.character.entity.AiCharacter;
 import com.mowoo.mowoo_backend.character.entity.UserCharacter;
 import com.mowoo.mowoo_backend.chat.ai.ChatAiClient;
 import com.mowoo.mowoo_backend.chat.ai.ChatSummaryAiClient;
-import com.mowoo.mowoo_backend.chat.ai.DiaryComparisonAiClient;
-import com.mowoo.mowoo_backend.chat.ai.DiarySuggestionAiClient;
 import com.mowoo.mowoo_backend.chat.ai.ChatAiException;
 import com.mowoo.mowoo_backend.chat.dto.request.SendMessageRequest;
 import com.mowoo.mowoo_backend.chat.entity.ChatSession;
@@ -60,12 +58,6 @@ class ChatServiceRollbackTest {
 
     @MockitoBean
     private ChatSummaryAiClient chatSummaryAiClient;
-
-    @MockitoBean
-    private DiarySuggestionAiClient diarySuggestionAiClient;
-
-    @MockitoBean
-    private DiaryComparisonAiClient diaryComparisonAiClient;
 
     private TransactionTemplate tx;
     private UUID userId;
