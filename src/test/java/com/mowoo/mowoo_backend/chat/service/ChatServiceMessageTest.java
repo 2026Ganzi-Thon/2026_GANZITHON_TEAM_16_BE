@@ -3,6 +3,7 @@ package com.mowoo.mowoo_backend.chat.service;
 import com.mowoo.mowoo_backend.character.entity.AiCharacter;
 import com.mowoo.mowoo_backend.character.entity.UserCharacter;
 import com.mowoo.mowoo_backend.chat.ai.ChatAiClient;
+import com.mowoo.mowoo_backend.chat.ai.ChatSummaryAiClient;
 import com.mowoo.mowoo_backend.chat.ai.ChatAiException;
 import com.mowoo.mowoo_backend.chat.ai.ChatAiRequest;
 import com.mowoo.mowoo_backend.chat.dto.request.SendMessageRequest;
@@ -53,6 +54,9 @@ class ChatServiceMessageTest {
     @MockitoBean
     private ChatAiClient chatAiClient;
 
+    @MockitoBean
+    private ChatSummaryAiClient chatSummaryAiClient;
+
     private User user;
     private AiCharacter character;
     private ChatSession session;
@@ -65,6 +69,8 @@ class ChatServiceMessageTest {
         session = em.persist(new ChatSession(user, character));
         em.flush();
         given(chatAiClient.reply(any())).willReturn("어떤 점이 가장 걱정되나요?");
+        given(chatSummaryAiClient.summarize(any()))
+                .willReturn(new ChatSummaryAiClient.Summary("면접을 앞둔 날", "면접 걱정을 이야기했어요."));
     }
 
     @Test
