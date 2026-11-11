@@ -3,6 +3,7 @@ package com.mowoo.mowoo_backend.chat.service;
 import com.mowoo.mowoo_backend.character.entity.AiCharacter;
 import com.mowoo.mowoo_backend.character.entity.UserCharacter;
 import com.mowoo.mowoo_backend.chat.ai.ChatAiClient;
+import com.mowoo.mowoo_backend.chat.ai.ChatSummaryAiClient;
 import com.mowoo.mowoo_backend.chat.ai.ChatAiException;
 import com.mowoo.mowoo_backend.chat.dto.request.SendMessageRequest;
 import com.mowoo.mowoo_backend.chat.entity.ChatSession;
@@ -54,6 +55,9 @@ class ChatServiceRollbackTest {
 
     @MockitoBean
     private ChatAiClient chatAiClient;
+
+    @MockitoBean
+    private ChatSummaryAiClient chatSummaryAiClient;
 
     private TransactionTemplate tx;
     private UUID userId;

@@ -3,6 +3,9 @@ package com.mowoo.mowoo_backend.chat.service;
 import com.mowoo.mowoo_backend.character.entity.AiCharacter;
 import com.mowoo.mowoo_backend.character.entity.UserCharacter;
 import com.mowoo.mowoo_backend.chat.ai.ChatAiClient;
+import com.mowoo.mowoo_backend.chat.ai.ChatAiException;
+import com.mowoo.mowoo_backend.chat.ai.ChatAiRequest;
+import com.mowoo.mowoo_backend.chat.ai.ChatSummaryAiClient;
 import com.mowoo.mowoo_backend.chat.dto.request.StartChatSessionRequest;
 import com.mowoo.mowoo_backend.chat.dto.response.ChatMessageResponse;
 import com.mowoo.mowoo_backend.chat.dto.response.ChatSessionDetailResponse;
@@ -10,6 +13,7 @@ import com.mowoo.mowoo_backend.chat.dto.response.ChatSessionItem;
 import com.mowoo.mowoo_backend.chat.dto.response.ChatSessionResponse;
 import com.mowoo.mowoo_backend.chat.entity.ChatMessage;
 import com.mowoo.mowoo_backend.chat.entity.ChatSession;
+import com.mowoo.mowoo_backend.chat.entity.SenderRole;
 import com.mowoo.mowoo_backend.chat.exception.ChatErrorCode;
 import com.mowoo.mowoo_backend.global.exception.BusinessException;
 import com.mowoo.mowoo_backend.global.exception.CommonErrorCode;
@@ -18,6 +22,7 @@ import com.mowoo.mowoo_backend.global.response.CursorResponse;
 import com.mowoo.mowoo_backend.user.entity.User;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
 import org.springframework.boot.jdbc.test.autoconfigure.AutoConfigureTestDatabase;
@@ -33,6 +38,11 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 // 로컬 MySQL에서 실행하고 테스트마다 롤백한다.
 @DataJpaTest
@@ -48,6 +58,9 @@ class ChatServiceSessionTest {
 
     @MockitoBean
     private ChatAiClient chatAiClient;
+
+    @MockitoBean
+    private ChatSummaryAiClient chatSummaryAiClient;
 
     private User user;
     private AiCharacter character;
@@ -205,19 +218,83 @@ class ChatServiceSessionTest {
     }
 
     @Test
-    void 대화를_종료하면_종료_시각이_기록되고_다시_종료해도_같은_결과다() {
+    void 대화를_종료하면_대화_기록으로_만든_제목과_요약을_저장한다() {
         ChatSession session = em.persist(new ChatSession(user, character));
         addTurns(session, 2);
+        given(chatSummaryAiClient.summarize(any()))
+                .willReturn(new ChatSummaryAiClient.Summary("면접을 앞둔 날", "면접 걱정을 이야기했어요."));
+
+        ChatSessionResponse ended = chatService.endSession(user.getId(), session.getId());
+        em.flush();
+        em.clear();
+        ChatSessionItem found = chatService.getSession(user.getId(), session.getId(), new CursorRequest(null, null))
+                .session();
+
+        assertThat(ended.code()).isEqualTo("CHAT_SESSION_END_SUCCESS");
+        assertThat(ended.title()).isEqualTo("면접을 앞둔 날");
+        assertThat(ended.summary()).isEqualTo("면접 걱정을 이야기했어요.");
+        assertThat(ended.endedAt()).isNotNull();
+        assertThat(ended.completedTurns()).isEqualTo(2);
+        assertThat(found.title()).isEqualTo("면접을 앞둔 날");
+        assertThat(found.summary()).isEqualTo("면접 걱정을 이야기했어요.");
+        assertThat(found.endedAt()).isEqualTo(ended.endedAt());
+
+        ArgumentCaptor<List<ChatAiRequest.Message>> messages = ArgumentCaptor.captor();
+        verify(chatSummaryAiClient).summarize(messages.capture());
+        assertThat(messages.getValue()).containsExactly(
+                new ChatAiRequest.Message(SenderRole.USER, "사용자 메시지 0"),
+                new ChatAiRequest.Message(SenderRole.ASSISTANT, "AI 응답 0"),
+                new ChatAiRequest.Message(SenderRole.USER, "사용자 메시지 1"),
+                new ChatAiRequest.Message(SenderRole.ASSISTANT, "AI 응답 1"));
+    }
+
+    @Test
+    void 이미_종료된_대화는_요약을_다시_만들지_않고_기존_결과를_돌려준다() {
+        ChatSession session = em.persist(new ChatSession(user, character));
+        addTurns(session, 2);
+        given(chatSummaryAiClient.summarize(any()))
+                .willReturn(new ChatSummaryAiClient.Summary("면접을 앞둔 날", "면접 걱정을 이야기했어요."));
 
         ChatSessionResponse ended = chatService.endSession(user.getId(), session.getId());
         em.flush();
         em.clear();
         ChatSessionResponse endedAgain = chatService.endSession(user.getId(), session.getId());
 
+        assertThat(endedAgain).isEqualTo(ended);
+        verify(chatSummaryAiClient, times(1)).summarize(any());
+    }
+
+    @Test
+    void 요약_생성에_실패해도_대화를_종료하고_제목과_요약은_null이다() {
+        ChatSession session = em.persist(new ChatSession(user, character));
+        addTurns(session, 1);
+        given(chatSummaryAiClient.summarize(any())).willThrow(new ChatAiException("실패", null));
+
+        ChatSessionResponse ended = chatService.endSession(user.getId(), session.getId());
+        em.flush();
+        em.clear();
+        ChatSessionItem found = chatService.getSession(user.getId(), session.getId(), new CursorRequest(null, null))
+                .session();
+
         assertThat(ended.code()).isEqualTo("CHAT_SESSION_END_SUCCESS");
         assertThat(ended.endedAt()).isNotNull();
-        assertThat(ended.completedTurns()).isEqualTo(2);
-        assertThat(endedAgain).isEqualTo(ended);
+        assertThat(ended.title()).isNull();
+        assertThat(ended.summary()).isNull();
+        assertThat(found.endedAt()).isEqualTo(ended.endedAt());
+        assertThat(found.title()).isNull();
+        assertThat(found.summary()).isNull();
+    }
+
+    @Test
+    void 메시지가_없는_대화는_요약을_만들지_않고_종료한다() {
+        ChatSession session = em.persist(new ChatSession(user, character));
+
+        ChatSessionResponse ended = chatService.endSession(user.getId(), session.getId());
+
+        assertThat(ended.endedAt()).isNotNull();
+        assertThat(ended.title()).isNull();
+        assertThat(ended.summary()).isNull();
+        verifyNoInteractions(chatSummaryAiClient);
     }
 
     @Test

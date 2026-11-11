@@ -6,6 +6,7 @@ import com.mowoo.mowoo_backend.character.repository.UserCharacterRepository;
 import com.mowoo.mowoo_backend.chat.ai.ChatAiClient;
 import com.mowoo.mowoo_backend.chat.ai.ChatAiException;
 import com.mowoo.mowoo_backend.chat.ai.ChatAiRequest;
+import com.mowoo.mowoo_backend.chat.ai.ChatSummaryAiClient;
 import com.mowoo.mowoo_backend.chat.dto.request.CreateDiaryReferenceRequest;
 import com.mowoo.mowoo_backend.chat.dto.request.SendMessageRequest;
 import com.mowoo.mowoo_backend.chat.dto.request.StartChatSessionRequest;
@@ -34,6 +35,7 @@ import com.mowoo.mowoo_backend.global.response.ListResponse;
 import com.mowoo.mowoo_backend.user.entity.User;
 import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Limit;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -48,15 +50,19 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 // 구현 전 기능은 UnsupportedOperationException을 던진다.
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class ChatService {
 
+    private static final ChatSummaryAiClient.Summary NO_SUMMARY = new ChatSummaryAiClient.Summary(null, null);
+
     private final ChatSessionRepository sessionRepository;
     private final ChatMessageRepository messageRepository;
     private final UserCharacterRepository userCharacterRepository;
     private final ChatAiClient chatAiClient;
+    private final ChatSummaryAiClient chatSummaryAiClient;
     private final EntityManager entityManager;
 
     @Transactional
@@ -134,14 +140,17 @@ public class ChatService {
         );
     }
 
-    // 이미 종료된 대화는 기존 결과를 그대로 돌려준다.
+    // 처음 종료할 때만 대화 기록으로 제목과 요약을 만든다. 이미 종료된 대화는 기존 결과를 그대로 돌려준다.
+    // 같은 대화를 동시에 종료해도 요약을 한 번만 만들도록 세션 행을 잠근다.
     @Transactional
     public ChatSessionResponse endSession(UUID userId, UUID sessionId) {
-        ChatSession session = findOwnedSession(userId, sessionId);
+        ChatSession session = sessionRepository.findByIdAndUserIdForUpdate(sessionId, userId)
+                .orElseThrow(() -> new BusinessException(ChatErrorCode.SESSION_NOT_FOUND));
         if (!session.isEnded()) {
-            // 제목과 요약은 AI 연결 후 채운다. 명세상 요약 생성에 실패하면 null로 둔다.
             // DATETIME은 초 단위로 저장되므로 응답과 저장 값이 같도록 초 단위로 자른다.
-            session.end(null, null, Instant.now().truncatedTo(ChronoUnit.SECONDS));
+            Instant endedAt = Instant.now().truncatedTo(ChronoUnit.SECONDS);
+            ChatSummaryAiClient.Summary summary = summarize(sessionId);
+            session.end(summary.title(), summary.summary(), endedAt);
         }
         return ChatSessionResponse.of(
                 CommonSuccessCode.CHAT_SESSION_END_SUCCESS, toSessionItem(session, countCompletedTurns(sessionId)));
@@ -287,18 +296,32 @@ public class ChatService {
     }
 
     private String generateReply(AiCharacter character, List<ChatMessage> history) {
-        ChatAiRequest request = new ChatAiRequest(
-                character.getName(),
-                character.getDescription(),
-                history.stream()
-                        .map(message -> new ChatAiRequest.Message(message.getSenderRole(), message.getContent()))
-                        .toList()
-        );
+        ChatAiRequest request = new ChatAiRequest(character.getName(), character.getDescription(), toAiMessages(history));
         try {
             return chatAiClient.reply(request);
         } catch (ChatAiException e) {
             throw new BusinessException(ChatErrorCode.AI_UNAVAILABLE);
         }
+    }
+
+    // 명세상 요약 생성에 실패해도 종료는 성공하고 제목과 요약은 null로 둔다.
+    private ChatSummaryAiClient.Summary summarize(UUID sessionId) {
+        List<ChatMessage> messages = messageRepository.findBySessionIdOrderBySequenceNo(sessionId);
+        if (messages.isEmpty()) {
+            return NO_SUMMARY;
+        }
+        try {
+            return chatSummaryAiClient.summarize(toAiMessages(messages));
+        } catch (ChatAiException e) {
+            log.warn("대화 요약을 만들지 못해 제목과 요약 없이 종료합니다. sessionId={}", sessionId);
+            return NO_SUMMARY;
+        }
+    }
+
+    private List<ChatAiRequest.Message> toAiMessages(List<ChatMessage> messages) {
+        return messages.stream()
+                .map(message -> new ChatAiRequest.Message(message.getSenderRole(), message.getContent()))
+                .toList();
     }
 
     private int countCompletedTurns(UUID sessionId) {

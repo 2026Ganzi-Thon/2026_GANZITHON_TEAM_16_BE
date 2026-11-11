@@ -2,6 +2,7 @@ package com.mowoo.mowoo_backend.chat.service;
 
 import com.mowoo.mowoo_backend.character.entity.AiCharacter;
 import com.mowoo.mowoo_backend.chat.ai.ChatAiClient;
+import com.mowoo.mowoo_backend.chat.ai.ChatSummaryAiClient;
 import com.mowoo.mowoo_backend.chat.entity.ChatMessage;
 import com.mowoo.mowoo_backend.chat.entity.ChatSession;
 import com.mowoo.mowoo_backend.chat.entity.SenderRole;
@@ -36,6 +37,9 @@ class ChatServiceTranscriptTest {
 
     @MockitoBean
     private ChatAiClient chatAiClient;
+
+    @MockitoBean
+    private ChatSummaryAiClient chatSummaryAiClient;
 
     private User user;
     private AiCharacter character;
