@@ -3,6 +3,7 @@ package com.mowoo.mowoo_backend.diary.repository;
 import com.mowoo.mowoo_backend.diary.entity.Diary;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.data.domain.Limit;
@@ -10,10 +11,23 @@ import jakarta.persistence.LockModeType;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Collection;
 import java.util.Optional;
 import java.util.UUID;
 
 public interface DiaryRepository extends JpaRepository<Diary, UUID> {
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select d from Diary d where d.user.id = :userId and d.id in :ids order by d.id")
+    List<Diary> findOwnedForDelete(@Param("userId") UUID userId, @Param("ids") Collection<UUID> ids);
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("delete from Diary d where d.user.id = :userId and d.id in :ids")
+    void deleteOwnedByIds(@Param("userId") UUID userId, @Param("ids") Collection<UUID> ids);
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("delete from Diary d where d.user.id = :userId")
+    void deleteAllForUser(@Param("userId") UUID userId);
 
     Optional<Diary> findByIdAndUserId(UUID id, UUID userId);
 

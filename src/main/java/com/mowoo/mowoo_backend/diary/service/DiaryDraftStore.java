@@ -7,6 +7,8 @@ import com.mowoo.mowoo_backend.diary.dto.response.DiaryResponse;
 import com.mowoo.mowoo_backend.diary.entity.Diary;
 import com.mowoo.mowoo_backend.diary.repository.DiaryRepository;
 import com.mowoo.mowoo_backend.global.exception.BusinessException;
+import com.mowoo.mowoo_backend.global.exception.CommonErrorCode;
+import com.mowoo.mowoo_backend.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,6 +21,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class DiaryDraftStore {
     private final DiaryRepository diaries;
+    private final UserRepository users;
     private final ChatSessionRepository sessions;
     private final DiaryResponseMapper mapper;
 
@@ -30,6 +33,8 @@ public class DiaryDraftStore {
     // 외부 호출이 끝난 뒤 짧게 원본 세션을 잠그고 중복 여부를 다시 확인한다.
     @Transactional
     public DiaryResponse save(UUID userId, UUID sessionId, LocalDate entryDate, DiaryAiResult result) {
+        users.findByIdForUpdate(userId)
+                .orElseThrow(() -> new BusinessException(CommonErrorCode.UNAUTHORIZED));
         var session = sessions.findByIdAndUserIdForUpdate(sessionId, userId)
                 .orElseThrow(() -> new BusinessException(ChatErrorCode.SESSION_NOT_FOUND));
         var existing = diaries.findBySourceSessionIdAndUserId(sessionId, userId);
