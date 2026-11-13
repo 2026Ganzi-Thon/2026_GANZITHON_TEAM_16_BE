@@ -6,6 +6,7 @@ import com.mowoo.mowoo_backend.global.response.SuccessResponse;
 import com.mowoo.mowoo_backend.login.dto.request.KakaoCodeRequest;
 import com.mowoo.mowoo_backend.login.dto.response.AuthResponse;
 import com.mowoo.mowoo_backend.login.service.AuthService;
+import com.mowoo.mowoo_backend.record.service.RecordService;
 import io.swagger.v3.oas.annotations.security.SecurityRequirements;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -17,6 +18,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.web.bind.annotation.CookieValue;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -34,10 +36,12 @@ public class AuthController {
     private static final String REFRESH_COOKIE = "refresh_token";
 
     private final AuthService authService;
+    private final RecordService records;
     private final boolean secureCookie;
 
-    public AuthController(AuthService authService, @Value("${auth.cookie.secure}") boolean secureCookie) {
+    public AuthController(AuthService authService, RecordService records, @Value("${auth.cookie.secure}") boolean secureCookie) {
         this.authService = authService;
+        this.records = records;
         this.secureCookie = secureCookie;
     }
 
@@ -77,6 +81,14 @@ public class AuthController {
                 .path("/api/v1/auth")
                 .maxAge(maxAge.isNegative() ? Duration.ZERO : maxAge)
                 .build();
+    }
+
+    @DeleteMapping("/withdraw")
+    public ResponseEntity<SuccessResponse> withdraw(@AuthenticationPrincipal Jwt jwt) {
+        records.withdraw(UUID.fromString(jwt.getSubject()));
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, refreshCookie("", Duration.ZERO).toString())
+                .body(SuccessResponse.of(CommonSuccessCode.ACCOUNT_DELETE_SUCCESS));
     }
 
     public record AccessTokenResponse(boolean isSuccess, String code, String message, String accessToken) {

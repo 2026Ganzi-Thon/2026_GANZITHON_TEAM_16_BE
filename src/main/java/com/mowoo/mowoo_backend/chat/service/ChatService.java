@@ -35,11 +35,13 @@ import com.mowoo.mowoo_backend.diary.entity.Diary;
 import com.mowoo.mowoo_backend.diary.exception.DiaryErrorCode;
 import com.mowoo.mowoo_backend.diary.repository.DiaryRepository;
 import com.mowoo.mowoo_backend.global.exception.BusinessException;
+import com.mowoo.mowoo_backend.global.exception.CommonErrorCode;
 import com.mowoo.mowoo_backend.global.request.CursorRequest;
 import com.mowoo.mowoo_backend.global.response.CommonSuccessCode;
 import com.mowoo.mowoo_backend.global.response.CursorResponse;
 import com.mowoo.mowoo_backend.global.response.ListResponse;
 import com.mowoo.mowoo_backend.user.entity.User;
+import com.mowoo.mowoo_backend.user.repository.UserRepository;
 import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -72,6 +74,7 @@ public class ChatService {
     private final DiaryReferenceRepository diaryReferenceRepository;
     private final DiaryRepository diaryRepository;
     private final UserCharacterRepository userCharacterRepository;
+    private final UserRepository userRepository;
     private final ChatAiClient chatAiClient;
     private final ChatSummaryAiClient chatSummaryAiClient;
     private final DiarySuggestionAiClient diarySuggestionAiClient;
@@ -80,6 +83,8 @@ public class ChatService {
 
     @Transactional
     public ChatSessionResponse startSession(UUID userId, StartChatSessionRequest request) {
+        User user = userRepository.findByIdForUpdate(userId)
+                .orElseThrow(() -> new BusinessException(CommonErrorCode.UNAUTHORIZED));
         UUID characterId = request.characterId();
         if (!userCharacterRepository.existsById(new UserCharacter.Id(userId, characterId))) {
             throw new BusinessException(ChatErrorCode.CHARACTER_NOT_OWNED);
@@ -87,7 +92,7 @@ public class ChatService {
 
         // 보유 기록이 있으면 사용자와 캐릭터가 모두 있으므로 조회 없이 참조만 건다.
         ChatSession session = sessionRepository.saveAndFlush(new ChatSession(
-                entityManager.getReference(User.class, userId),
+                user,
                 entityManager.getReference(AiCharacter.class, characterId)
         ));
         // DATETIME은 초 단위로 저장되므로 다시 읽어서 이후 조회와 같은 startedAt을 응답한다.

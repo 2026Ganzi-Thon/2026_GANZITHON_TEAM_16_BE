@@ -16,6 +16,10 @@ import java.util.UUID;
 
 public interface ChatSessionRepository extends JpaRepository<ChatSession, UUID> {
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select s from ChatSession s where s.user.id = :userId order by s.id")
+    List<ChatSession> findAllForUserForUpdate(@Param("userId") UUID userId);
+
     // 다른 사용자의 세션은 없는 세션처럼 다룬다(SESSION_NOT_FOUND).
     Optional<ChatSession> findByIdAndUserId(UUID id, UUID userId);
 
@@ -24,7 +28,8 @@ public interface ChatSessionRepository extends JpaRepository<ChatSession, UUID> 
     @Query("select s from ChatSession s where s.id = :id and s.user.id = :userId")
     Optional<ChatSession> findByIdAndUserIdForUpdate(@Param("id") UUID id, @Param("userId") UUID userId);
 
-    @Modifying
+    // 벌크 삭제 후 남은 관리 엔티티가 탈퇴 시 삭제된 사용자를 참조하지 않도록 비운다.
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("delete from ChatSession s where s.user.id = :userId")
     void deleteAllForUser(@Param("userId") UUID userId);
 
