@@ -111,7 +111,7 @@ public class ChatSessionController {
         return chatService.sendMessage(userId(jwt), sessionId, request);
     }
 
-    @Operation(summary = "최근 메시지 수정", description = "가장 최근의 사용자 메시지를 수정하고 그 응답을 갱신합니다.")
+    @Operation(summary = "최근 메시지 수정", description = "가장 최근의 사용자 메시지를 수정합니다. AI 응답은 다시 만들지 않습니다.")
     @PatchMapping("/{sessionId}/messages/{messageId}")
     public UpdateMessageResponse updateMessage(
             @AuthenticationPrincipal Jwt jwt,
