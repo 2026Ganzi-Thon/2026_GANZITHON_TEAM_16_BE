@@ -43,6 +43,7 @@ import com.mowoo.mowoo_backend.global.response.ListResponse;
 import com.mowoo.mowoo_backend.user.entity.User;
 import com.mowoo.mowoo_backend.user.repository.UserRepository;
 import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Limit;
@@ -308,6 +309,7 @@ public class ChatService {
     // 고민 메시지와 사용자가 고른 저장 일기를 비교한 답변을 대화 끝에 AI 메시지로 저장하고 일기 참조를 단다.
     // 이 답변은 사용자 메시지 없이 추가되므로 왕복 수에 들어가지 않는다(ChatTurnPolicy).
     // 일반 조회보다 세션 잠금을 먼저 얻어야, 기다리는 동안 다른 요청이 저장한 최신 순번을 읽는다.
+    // 고른 일기는 공유 잠금으로 읽어서 연결이 끝날 때까지 삭제를 막는다. 같은 일기를 연결하는 다른 대화는 기다리지 않는다.
     @Transactional
     public CreateDiaryReferenceResponse createDiaryReference(
             UUID userId,
@@ -321,9 +323,10 @@ public class ChatService {
             throw new BusinessException(ChatErrorCode.SESSION_CLOSED);
         }
         ChatMessage concern = findUserMessage(session, request.messageId());
-        Diary diary = diaryRepository.findByIdAndUserId(request.diaryId(), userId)
-                .filter(found -> found.getSavedAt() != null)
-                .orElseThrow(() -> new BusinessException(DiaryErrorCode.DIARY_NOT_FOUND));
+        Diary diary = entityManager.find(Diary.class, request.diaryId(), LockModeType.PESSIMISTIC_READ);
+        if (diary == null || !diary.getUser().getId().equals(userId) || diary.getSavedAt() == null) {
+            throw new BusinessException(DiaryErrorCode.DIARY_NOT_FOUND);
+        }
 
         // 지금 대화 중인 캐릭터(마지막 AI 응답의 캐릭터)로 답한다.
         ChatMessage latest = messageRepository.findTopBySessionIdOrderBySequenceNoDesc(sessionId).orElseThrow();
