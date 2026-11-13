@@ -16,6 +16,8 @@ import org.springframework.test.web.servlet.MockMvc;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -88,8 +90,12 @@ class DiaryFlowIntegrationTest extends DiaryDatabaseTest {
         assertThat(row.get("user_id")).isEqualTo(userId.toString());
         assertThat(row.get("saved_at")).isNotNull();
         assertThat(row.get("source_session_id")).isNull();
-        assertThat(jdbc.queryForObject("select saved_at from diaries where id = ?", java.sql.Timestamp.class, id)
-                .toInstant()).isAfterOrEqualTo(before);
+        LocalDateTime dbSavedAt = jdbc.queryForObject(
+                "select saved_at from diaries where id = ?", LocalDateTime.class, id);
+        assertThat(dbSavedAt).isNotNull();
+        // saved_at의 DATETIME 값은 UTC 저장 규약에 따라 JVM 기본 시간대와 무관하게 해석한다.
+        Instant actualSavedAt = dbSavedAt.atOffset(ZoneOffset.UTC).toInstant();
+        assertThat(actualSavedAt).isAfterOrEqualTo(before);
     }
 
     @Test
