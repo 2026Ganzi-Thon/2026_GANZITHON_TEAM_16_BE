@@ -177,9 +177,12 @@ public class ChatService {
     }
 
     // 메시지는 DB 외래키(ON DELETE CASCADE)로 함께 지워진다.
+    // 전체 삭제·탈퇴와 겹쳐도 먼저 지워진 대화는 SESSION_NOT_FOUND가 되도록 세션 행을 잠가서 읽는다.
     @Transactional
     public void deleteSession(UUID userId, UUID sessionId) {
-        sessionRepository.delete(findOwnedSession(userId, sessionId));
+        ChatSession session = sessionRepository.findByIdAndUserIdForUpdate(sessionId, userId)
+                .orElseThrow(() -> new BusinessException(ChatErrorCode.SESSION_NOT_FOUND));
+        sessionRepository.delete(session);
     }
 
     @Transactional
