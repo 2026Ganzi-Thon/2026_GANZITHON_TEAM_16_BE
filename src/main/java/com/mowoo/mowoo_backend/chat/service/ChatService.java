@@ -7,6 +7,8 @@ import com.mowoo.mowoo_backend.chat.ai.ChatAiClient;
 import com.mowoo.mowoo_backend.chat.ai.ChatAiException;
 import com.mowoo.mowoo_backend.chat.ai.ChatAiRequest;
 import com.mowoo.mowoo_backend.chat.ai.ChatSummaryAiClient;
+import com.mowoo.mowoo_backend.chat.ai.DiaryComparisonAiClient;
+import com.mowoo.mowoo_backend.chat.ai.DiarySuggestionAiClient;
 import com.mowoo.mowoo_backend.chat.dto.request.CreateDiaryReferenceRequest;
 import com.mowoo.mowoo_backend.chat.dto.request.SendMessageRequest;
 import com.mowoo.mowoo_backend.chat.dto.request.StartChatSessionRequest;
@@ -22,11 +24,16 @@ import com.mowoo.mowoo_backend.chat.dto.response.SendMessageResponse;
 import com.mowoo.mowoo_backend.chat.dto.response.UpdateMessageResponse;
 import com.mowoo.mowoo_backend.chat.entity.ChatMessage;
 import com.mowoo.mowoo_backend.chat.entity.ChatSession;
+import com.mowoo.mowoo_backend.chat.entity.DiaryReference;
 import com.mowoo.mowoo_backend.chat.entity.SenderRole;
 import com.mowoo.mowoo_backend.chat.exception.ChatErrorCode;
 import com.mowoo.mowoo_backend.chat.repository.ChatMessageRepository;
 import com.mowoo.mowoo_backend.chat.repository.ChatSessionRepository;
+import com.mowoo.mowoo_backend.chat.repository.DiaryReferenceRepository;
 import com.mowoo.mowoo_backend.chat.repository.SessionSenderRole;
+import com.mowoo.mowoo_backend.diary.entity.Diary;
+import com.mowoo.mowoo_backend.diary.exception.DiaryErrorCode;
+import com.mowoo.mowoo_backend.diary.repository.DiaryRepository;
 import com.mowoo.mowoo_backend.global.exception.BusinessException;
 import com.mowoo.mowoo_backend.global.request.CursorRequest;
 import com.mowoo.mowoo_backend.global.response.CommonSuccessCode;
@@ -49,7 +56,6 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
-// 구현 전 기능은 UnsupportedOperationException을 던진다.
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -57,12 +63,19 @@ import java.util.stream.Collectors;
 public class ChatService {
 
     private static final ChatSummaryAiClient.Summary NO_SUMMARY = new ChatSummaryAiClient.Summary(null, null);
+    // AI에 후보로 넘길 최근 저장 일기 수와 돌려줄 후보 수
+    private static final int SUGGESTION_CANDIDATE_LIMIT = 30;
+    private static final int SUGGESTION_LIMIT = 3;
 
     private final ChatSessionRepository sessionRepository;
     private final ChatMessageRepository messageRepository;
+    private final DiaryReferenceRepository diaryReferenceRepository;
+    private final DiaryRepository diaryRepository;
     private final UserCharacterRepository userCharacterRepository;
     private final ChatAiClient chatAiClient;
     private final ChatSummaryAiClient chatSummaryAiClient;
+    private final DiarySuggestionAiClient diarySuggestionAiClient;
+    private final DiaryComparisonAiClient diaryComparisonAiClient;
     private final EntityManager entityManager;
 
     @Transactional
@@ -130,8 +143,9 @@ public class ChatService {
         Collections.reverse(page);
 
         String nextCursor = hasNext ? ChatCursor.encodeMessage(page.getFirst().getSequenceNo()) : null;
+        Map<UUID, List<ChatMessageResponse.DiaryReference>> referencesByMessage = findDiaryReferencesByMessage(page);
         List<ChatMessageResponse> items = page.stream()
-                .map(this::toMessageResponse)
+                .map(message -> toMessageResponse(message, referencesByMessage.getOrDefault(message.getId(), List.of())))
                 .toList();
 
         return new ChatSessionDetailResponse(
@@ -267,16 +281,96 @@ public class ChatService {
         );
     }
 
+    // 최근 저장 일기 중에서 AI가 현재 고민과 관련된 일기를 고른다.
+    // 명세에 AI 실패 응답이 없으므로 고르지 못하면 빈 목록을 돌려준다.
     public ListResponse<DiarySuggestionResponse> getDiarySuggestions(UUID userId, UUID sessionId, UUID messageId) {
-        throw notImplemented();
+        requirePastDiariesEnabled(userId);
+        ChatSession session = sessionRepository.findByIdAndUserId(sessionId, userId)
+                .orElseThrow(() -> new BusinessException(ChatErrorCode.MESSAGE_NOT_FOUND));
+        ChatMessage concern = findUserMessage(session, messageId);
+
+        // 이 대화로 만든 일기는 지금 고민과 같은 내용이라 후보에서 뺀다.
+        List<Diary> candidates = diaryRepository.findSaved(userId, null, null, Limit.of(SUGGESTION_CANDIDATE_LIMIT))
+                .stream()
+                .filter(diary -> diary.getSourceSession() == null || !diary.getSourceSession().getId().equals(sessionId))
+                .toList();
+        List<DiarySuggestionResponse> items = selectRelatedDiaries(sessionId, concern.getContent(), candidates).stream()
+                .map(diary -> new DiarySuggestionResponse(diary.getId(), diary.getEntryDate(), diary.getTitle()))
+                .toList();
+        return new ListResponse<>(CommonSuccessCode.DIARY_SUGGESTION_READ_SUCCESS, items);
     }
 
+    // 고민 메시지와 사용자가 고른 저장 일기를 비교한 답변을 대화 끝에 AI 메시지로 저장하고 일기 참조를 단다.
+    // 이 답변은 사용자 메시지 없이 추가되므로 왕복 수에 들어가지 않는다(ChatTurnPolicy).
+    // 일반 조회보다 세션 잠금을 먼저 얻어야, 기다리는 동안 다른 요청이 저장한 최신 순번을 읽는다.
+    @Transactional
     public CreateDiaryReferenceResponse createDiaryReference(
             UUID userId,
             UUID sessionId,
             CreateDiaryReferenceRequest request
     ) {
-        throw notImplemented();
+        ChatSession session = sessionRepository.findByIdAndUserIdForUpdate(sessionId, userId)
+                .orElseThrow(() -> new BusinessException(ChatErrorCode.MESSAGE_NOT_FOUND));
+        requirePastDiariesEnabled(userId);
+        if (session.isEnded()) {
+            throw new BusinessException(ChatErrorCode.SESSION_CLOSED);
+        }
+        ChatMessage concern = findUserMessage(session, request.messageId());
+        Diary diary = diaryRepository.findByIdAndUserId(request.diaryId(), userId)
+                .filter(found -> found.getSavedAt() != null)
+                .orElseThrow(() -> new BusinessException(DiaryErrorCode.DIARY_NOT_FOUND));
+
+        // 지금 대화 중인 캐릭터(마지막 AI 응답의 캐릭터)로 답한다.
+        ChatMessage latest = messageRepository.findTopBySessionIdOrderBySequenceNoDesc(sessionId).orElseThrow();
+        AiCharacter character = latest.getCharacter() != null ? latest.getCharacter() : session.getCharacter();
+        String reply;
+        try {
+            reply = diaryComparisonAiClient.compare(new DiaryComparisonAiClient.Request(
+                    character.getName(), character.getDescription(), concern.getContent(),
+                    diary.getEntryDate(), diary.getTitle(), diary.getContent()));
+        } catch (ChatAiException e) {
+            throw new BusinessException(ChatErrorCode.AI_UNAVAILABLE);
+        }
+
+        ChatMessage assistantMessage = messageRepository.saveAndFlush(
+                ChatMessage.ofAssistant(session, latest.getSequenceNo() + 1, character, reply));
+        // DATETIME은 초 단위로 저장되므로 다시 읽어서 이후 조회와 같은 createdAt을 응답한다.
+        entityManager.refresh(assistantMessage);
+        DiaryReference reference = diaryReferenceRepository.save(new DiaryReference(
+                assistantMessage, diary, Instant.now().truncatedTo(ChronoUnit.SECONDS)));
+
+        return new CreateDiaryReferenceResponse(toMessageResponse(assistantMessage, List.of(toDiaryReference(reference))));
+    }
+
+    private void requirePastDiariesEnabled(UUID userId) {
+        User user = entityManager.find(User.class, userId);
+        if (user == null || !user.isUsePastDiaries()) {
+            throw new BusinessException(ChatErrorCode.PAST_DIARY_DISABLED);
+        }
+    }
+
+    // 과거 일기는 사용자가 보낸 메시지에만 연결할 수 있다.
+    private ChatMessage findUserMessage(ChatSession session, UUID messageId) {
+        return messageRepository.findByIdAndSessionId(messageId, session.getId())
+                .filter(message -> message.getSenderRole() == SenderRole.USER)
+                .orElseThrow(() -> new BusinessException(ChatErrorCode.MESSAGE_NOT_FOUND));
+    }
+
+    private List<Diary> selectRelatedDiaries(UUID sessionId, String concern, List<Diary> candidates) {
+        if (candidates.isEmpty()) {
+            return List.of();
+        }
+        try {
+            return diarySuggestionAiClient.select(concern, candidates.stream()
+                            .map(diary -> new DiarySuggestionAiClient.Candidate(
+                                    diary.getEntryDate(), diary.getTitle(), diary.getContent()))
+                            .toList(), SUGGESTION_LIMIT).stream()
+                    .map(candidates::get)
+                    .toList();
+        } catch (ChatAiException e) {
+            log.warn("과거 일기 후보를 고르지 못해 빈 목록을 돌려줍니다. sessionId={}", sessionId);
+            return List.of();
+        }
     }
 
     private ChatSession findOwnedSession(UUID userId, UUID sessionId) {
@@ -353,8 +447,12 @@ public class ChatService {
         );
     }
 
-    // 과거 일기 참조는 일기 엔티티가 생긴 뒤 채운다.
+    // 메시지 전송·수정 응답의 메시지에는 과거 일기 참조가 없다. 참조는 비교 답변에만 달린다.
     private ChatMessageResponse toMessageResponse(ChatMessage message) {
+        return toMessageResponse(message, List.of());
+    }
+
+    private ChatMessageResponse toMessageResponse(ChatMessage message, List<ChatMessageResponse.DiaryReference> references) {
         return new ChatMessageResponse(
                 message.getId(),
                 message.getSequenceNo(),
@@ -363,11 +461,25 @@ public class ChatService {
                 message.getContent(),
                 message.getCreatedAt(),
                 message.getEditedAt(),
-                List.of()
+                references
         );
     }
 
-    private UnsupportedOperationException notImplemented() {
-        return new UnsupportedOperationException("구현 예정");
+    private Map<UUID, List<ChatMessageResponse.DiaryReference>> findDiaryReferencesByMessage(List<ChatMessage> messages) {
+        if (messages.isEmpty()) {
+            return Map.of();
+        }
+        List<UUID> messageIds = messages.stream().map(ChatMessage::getId).toList();
+        return diaryReferenceRepository.findWithDiaryByMessageIds(messageIds).stream()
+                .collect(Collectors.groupingBy(
+                        reference -> reference.getId().messageId(),
+                        Collectors.mapping(this::toDiaryReference, Collectors.toList())
+                ));
+    }
+
+    private ChatMessageResponse.DiaryReference toDiaryReference(DiaryReference reference) {
+        Diary diary = reference.getDiary();
+        return new ChatMessageResponse.DiaryReference(
+                diary.getId(), diary.getEntryDate(), diary.getTitle(), reference.getAcceptedAt());
     }
 }
