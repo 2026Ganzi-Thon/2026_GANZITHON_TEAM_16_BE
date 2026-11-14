@@ -8,11 +8,16 @@ import com.mowoo.mowoo_backend.chat.ai.DiaryComparisonAiClient;
 import com.mowoo.mowoo_backend.chat.ai.DiarySuggestionAiClient;
 import com.mowoo.mowoo_backend.chat.dto.request.CreateDiaryReferenceRequest;
 import com.mowoo.mowoo_backend.chat.dto.request.SendMessageRequest;
+import com.mowoo.mowoo_backend.chat.dto.response.ChatMessageResponse;
 import com.mowoo.mowoo_backend.chat.dto.response.CreateDiaryReferenceResponse;
 import com.mowoo.mowoo_backend.chat.dto.response.SendMessageResponse;
 import com.mowoo.mowoo_backend.chat.entity.ChatMessage;
 import com.mowoo.mowoo_backend.chat.entity.ChatSession;
+import com.mowoo.mowoo_backend.chat.exception.ChatErrorCode;
+import com.mowoo.mowoo_backend.chat.repository.ChatSessionRepository;
 import com.mowoo.mowoo_backend.diary.entity.Diary;
+import com.mowoo.mowoo_backend.global.exception.BusinessException;
+import com.mowoo.mowoo_backend.record.service.RecordService;
 import com.mowoo.mowoo_backend.user.entity.User;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.AfterEach;
@@ -31,6 +36,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
@@ -38,19 +44,26 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 
-// 같은 세션에 겹친 요청을 각자의 트랜잭션으로 실행하려고 테스트 트랜잭션 없이 실행한다.
+// 같은 세션이나 일기에 겹친 요청을 각자의 트랜잭션으로 실행하려고 테스트 트랜잭션 없이 실행한다.
 // 로컬 MySQL에 데이터를 직접 넣으므로 테스트가 끝나면 지운다.
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
-@Import(ChatService.class)
+@Import({ChatService.class, RecordService.class})
 class ChatServiceConcurrencyTest {
 
     @Autowired
     private ChatService chatService;
+
+    @Autowired
+    private RecordService recordService;
+
+    @Autowired
+    private ChatSessionRepository sessionRepository;
 
     @Autowired
     private EntityManager em;
@@ -132,7 +145,7 @@ class ChatServiceConcurrencyTest {
             assertThat(sendHoldsLock.await(10, TimeUnit.SECONDS)).isTrue();
             Future<CreateDiaryReferenceResponse> reference = workers.submit(() -> chatService.createDiaryReference(
                     userId, sessionId, new CreateDiaryReferenceRequest(concernId, diaryId)));
-            awaitSessionLockWait();
+            awaitLockWait(reference, "chat_sessions");
             referenceWaiting.countDown();
 
             assertThat(send.get(20, TimeUnit.SECONDS).assistantMessage().sequenceNo()).isEqualTo(4);
@@ -142,15 +155,89 @@ class ChatServiceConcurrencyTest {
                 Integer.class, sessionId.toString())).containsExactly(1, 2, 3, 4, 5);
     }
 
-    // 다른 연결이 세션 행 잠금(select ... for update)을 기다리기 시작할 때까지 기다린다.
-    private void awaitSessionLockWait() throws InterruptedException {
+    @Test
+    void 비교_답변을_기다리는_동안_들어온_일기_삭제는_연결이_끝난_뒤_일기와_참조를_지운다() throws Exception {
+        CountDownLatch referenceHoldsLock = new CountDownLatch(1);
+        CountDownLatch deleteWaiting = new CountDownLatch(1);
+        // 연결 요청이 AI 비교 답변을 기다리는 동안 같은 일기를 선택 삭제한다.
+        given(diaryComparisonAiClient.compare(any())).willAnswer(invocation -> {
+            referenceHoldsLock.countDown();
+            assertThat(deleteWaiting.await(10, TimeUnit.SECONDS)).isTrue();
+            return "두 기록 모두 다른 사람의 평가를 걱정했어요.";
+        });
+
+        try (var workers = Executors.newFixedThreadPool(2)) {
+            Future<CreateDiaryReferenceResponse> reference = workers.submit(() -> chatService.createDiaryReference(
+                    userId, sessionId, new CreateDiaryReferenceRequest(concernId, diaryId)));
+            assertThat(referenceHoldsLock.await(10, TimeUnit.SECONDS)).isTrue();
+            Future<?> delete = workers.submit(() -> recordService.deleteDiaries(userId, List.of(diaryId)));
+            awaitLockWait(delete, "diaries");
+            deleteWaiting.countDown();
+
+            assertThat(reference.get(20, TimeUnit.SECONDS).assistantMessage().diaryReferences())
+                    .extracting(ChatMessageResponse.DiaryReference::diaryId).containsExactly(diaryId);
+            delete.get(20, TimeUnit.SECONDS);
+        }
+        // 삭제는 연결이 끝난 뒤 일기와 참조를 지우고, 비교 답변 메시지는 남긴다.
+        assertThat(jdbc.queryForObject("select count(*) from diaries where id = ?",
+                Integer.class, diaryId.toString())).isZero();
+        assertThat(jdbc.queryForObject("select count(*) from diary_references where diary_id = ?",
+                Integer.class, diaryId.toString())).isZero();
+        assertThat(jdbc.queryForList("select sequence_no from chat_messages where session_id = ? order by sequence_no",
+                Integer.class, sessionId.toString())).containsExactly(1, 2, 3);
+    }
+
+    @Test
+    void 다른_요청이_지우는_중인_대화를_삭제하면_SESSION_NOT_FOUND다() throws Exception {
+        CountDownLatch deleteAllHoldsLock = new CountDownLatch(1);
+        CountDownLatch deleteWaiting = new CountDownLatch(1);
+
+        try (var workers = Executors.newFixedThreadPool(2)) {
+            // 전체 삭제처럼 세션을 잠그고 지운 뒤, 대화 삭제가 잠금을 기다릴 때까지 커밋하지 않는다.
+            Future<?> deleteAll = workers.submit(() -> new TransactionTemplate(transactionManager)
+                    .executeWithoutResult(status -> {
+                        sessionRepository.findAllForUserForUpdate(userId);
+                        chatService.deleteAllSessions(userId);
+                        deleteAllHoldsLock.countDown();
+                        await(deleteWaiting);
+                    }));
+            assertThat(deleteAllHoldsLock.await(10, TimeUnit.SECONDS)).isTrue();
+            Future<?> delete = workers.submit(() -> chatService.deleteSession(userId, sessionId));
+            awaitLockWait(delete, "chat_sessions");
+            deleteWaiting.countDown();
+
+            deleteAll.get(20, TimeUnit.SECONDS);
+            assertThatThrownBy(() -> delete.get(20, TimeUnit.SECONDS))
+                    .cause()
+                    .isInstanceOf(BusinessException.class)
+                    .extracting(e -> ((BusinessException) e).getErrorCode())
+                    .isEqualTo(ChatErrorCode.SESSION_NOT_FOUND);
+        }
+        assertThat(jdbc.queryForObject("select count(*) from chat_sessions where id = ?",
+                Integer.class, sessionId.toString())).isZero();
+    }
+
+    // 다른 요청이 table의 행 잠금(select ... for update, delete)을 기다리기 시작할 때까지 기다린다.
+    // 잠금을 쥔 동안에는 이 문장들이 끝나지 않으므로 processlist에 보이면 기다리는 중이다. 잠금 없이 먼저 끝나면 바로 돌아간다.
+    // 잠금 없이 읽은 행을 지우면 커밋 시점의 delete에서 기다리므로 그 문장도 본다.
+    private void awaitLockWait(Future<?> request, String table) throws InterruptedException {
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
-        while (jdbc.queryForObject("select count(*) from information_schema.processlist "
-                + "where id <> connection_id() and info like '%from chat_sessions%for update%'", Integer.class) == 0) {
+        while (!request.isDone() && jdbc.queryForObject("select count(*) from information_schema.processlist "
+                        + "where id <> connection_id() and (info like ? or info like ?)",
+                Integer.class, "%from " + table + "%for update%", "delete from " + table + "%") == 0) {
             if (System.nanoTime() > deadline) {
-                throw new AssertionError("세션 잠금을 기다리는 요청이 없습니다.");
+                throw new AssertionError("잠금을 기다리는 요청이 없습니다.");
             }
             Thread.sleep(20);
+        }
+    }
+
+    // 트랜잭션 콜백 안에서는 검사 예외를 던질 수 없어서 InterruptedException을 감싼다.
+    private static void await(CountDownLatch latch) {
+        try {
+            assertThat(latch.await(10, TimeUnit.SECONDS)).isTrue();
+        } catch (InterruptedException e) {
+            throw new IllegalStateException(e);
         }
     }
 }
