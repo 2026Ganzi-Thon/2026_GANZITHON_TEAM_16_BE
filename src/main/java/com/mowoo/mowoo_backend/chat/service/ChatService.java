@@ -91,7 +91,7 @@ public class ChatService {
             throw new BusinessException(ChatErrorCode.CHARACTER_NOT_OWNED);
         }
 
-        // 보유 기록이 있으면 사용자와 캐릭터가 모두 있으므로 조회 없이 참조만 건다.
+        // 사용자는 위에서 잠금 조회했고, 보유한 캐릭터는 추가 조회 없이 참조만 건다.
         ChatSession session = sessionRepository.saveAndFlush(new ChatSession(
                 user,
                 entityManager.getReference(AiCharacter.class, characterId)
