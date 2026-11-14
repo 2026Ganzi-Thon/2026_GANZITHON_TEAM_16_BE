@@ -13,7 +13,6 @@ import com.mowoo.mowoo_backend.chat.dto.request.UpdateMessageRequest;
 import com.mowoo.mowoo_backend.chat.dto.response.ChatMessageResponse;
 import com.mowoo.mowoo_backend.chat.dto.response.SendMessageResponse;
 import com.mowoo.mowoo_backend.chat.dto.response.UpdateMessageResponse;
-import com.mowoo.mowoo_backend.chat.entity.ChatMessage;
 import com.mowoo.mowoo_backend.chat.entity.ChatSession;
 import com.mowoo.mowoo_backend.chat.entity.SenderRole;
 import com.mowoo.mowoo_backend.chat.exception.ChatErrorCode;
@@ -191,9 +190,8 @@ class ChatServiceMessageTest {
     }
 
     @Test
-    void 최근_사용자_메시지를_수정하면_같은_AI_응답을_다시_만든다() {
+    void 최근_사용자_메시지를_수정해도_AI_응답은_다시_만들지_않는다() {
         SendMessageResponse sent = send("오늘 면접이 걱정돼요.");
-        given(chatAiClient.reply(any())).willReturn("발표의 어떤 점이 걱정되나요?");
 
         UpdateMessageResponse response = chatService.updateMessage(
                 user.getId(), session.getId(), sent.userMessage().id(), new UpdateMessageRequest("오늘 발표가 걱정돼요."));
@@ -202,24 +200,23 @@ class ChatServiceMessageTest {
         assertThat(response.userMessage().id()).isEqualTo(sent.userMessage().id());
         assertThat(response.userMessage().content()).isEqualTo("오늘 발표가 걱정돼요.");
         assertThat(response.userMessage().editedAt()).isNotNull();
-        assertThat(response.assistantMessage().id()).isEqualTo(sent.assistantMessage().id());
-        assertThat(response.assistantMessage().content()).isEqualTo("발표의 어떤 점이 걱정되나요?");
-        assertThat(response.assistantMessage().editedAt()).isNull();
+        assertThat(response.assistantMessage()).isEqualTo(sent.assistantMessage());
+        // 메시지 전송 때 한 번만 불렸다.
+        verify(chatAiClient, times(1)).reply(any());
     }
 
     @Test
-    void 수정할_때_AI에는_수정한_메시지까지만_넘긴다() {
+    void 수정한_내용은_다음_AI_응답의_대화_기록에_들어간다() {
         SendMessageResponse sent = send("오늘 면접이 걱정돼요.");
-
         chatService.updateMessage(
                 user.getId(), session.getId(), sent.userMessage().id(), new UpdateMessageRequest("오늘 발표가 걱정돼요."));
 
+        send("말을 잘 못할까 봐요.");
+
         ArgumentCaptor<ChatAiRequest> captor = ArgumentCaptor.forClass(ChatAiRequest.class);
         verify(chatAiClient, times(2)).reply(captor.capture());
-        assertThat(captor.getValue().messages()).singleElement().satisfies(message -> {
-            assertThat(message.senderRole()).isEqualTo(SenderRole.USER);
-            assertThat(message.content()).isEqualTo("오늘 발표가 걱정돼요.");
-        });
+        assertThat(captor.getValue().messages()).extracting(ChatAiRequest.Message::content)
+                .containsExactly("오늘 발표가 걱정돼요.", "어떤 점이 가장 걱정되나요?", "말을 잘 못할까 봐요.");
     }
 
     @Test
@@ -236,17 +233,6 @@ class ChatServiceMessageTest {
         SendMessageResponse sent = send("오늘 면접이 걱정돼요.");
 
         assertErrorCode(() -> chatService.updateMessage(user.getId(), session.getId(), sent.assistantMessage().id(),
-                new UpdateMessageRequest("수정")), ChatErrorCode.MESSAGE_NOT_EDITABLE);
-    }
-
-    @Test
-    void 마지막_메시지가_과거_일기_비교_답변이면_앞의_사용자_메시지는_수정할_수_없다() {
-        SendMessageResponse sent = send("오늘 면접이 걱정돼요.");
-        // 과거 일기 연결처럼 사용자 메시지 없이 AI 응답이 더 붙은 상태
-        em.persist(ChatMessage.ofAssistant(em.find(ChatSession.class, session.getId()), 3, character, "비교 답변"));
-        em.flush();
-
-        assertErrorCode(() -> chatService.updateMessage(user.getId(), session.getId(), sent.userMessage().id(),
                 new UpdateMessageRequest("수정")), ChatErrorCode.MESSAGE_NOT_EDITABLE);
     }
 
@@ -268,15 +254,6 @@ class ChatServiceMessageTest {
 
         assertErrorCode(() -> chatService.updateMessage(user.getId(), session.getId(), sent.userMessage().id(),
                 new UpdateMessageRequest("수정")), ChatErrorCode.SESSION_CLOSED);
-    }
-
-    @Test
-    void 수정_중_AI가_실패하면_AI_UNAVAILABLE이다() {
-        SendMessageResponse sent = send("오늘 면접이 걱정돼요.");
-        given(chatAiClient.reply(any())).willThrow(new ChatAiException("시간 초과", null));
-
-        assertErrorCode(() -> chatService.updateMessage(user.getId(), session.getId(), sent.userMessage().id(),
-                new UpdateMessageRequest("수정")), ChatErrorCode.AI_UNAVAILABLE);
     }
 
     private SendMessageResponse send(String content) {

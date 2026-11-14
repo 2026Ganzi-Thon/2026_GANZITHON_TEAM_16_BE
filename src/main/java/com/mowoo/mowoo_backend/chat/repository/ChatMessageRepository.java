@@ -14,10 +14,15 @@ import java.util.UUID;
 
 public interface ChatMessageRepository extends JpaRepository<ChatMessage, UUID> {
 
-    // 다음 순번 계산과 최근 메시지 수정 가능 여부 확인에 쓴다.
+    // 다음 순번 계산과 마지막 응답 캐릭터 확인에 쓴다.
     Optional<ChatMessage> findTopBySessionIdOrderBySequenceNoDesc(UUID sessionId);
 
+    // 최근 메시지 수정 가능 여부 확인에 쓴다. 가장 최근의 사용자 메시지만 고칠 수 있다.
+    Optional<ChatMessage> findTopBySessionIdAndSenderRoleOrderBySequenceNoDesc(UUID sessionId, SenderRole senderRole);
+
     Optional<ChatMessage> findByIdAndSessionId(UUID id, UUID sessionId);
+
+    Optional<ChatMessage> findBySessionIdAndSequenceNo(UUID sessionId, int sequenceNo);
 
     // AI에 넘길 대화 기록
     List<ChatMessage> findBySessionIdOrderBySequenceNo(UUID sessionId);

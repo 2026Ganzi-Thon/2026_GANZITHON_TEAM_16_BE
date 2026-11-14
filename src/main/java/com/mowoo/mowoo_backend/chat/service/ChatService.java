@@ -226,7 +226,8 @@ public class ChatService {
         );
     }
 
-    // 가장 최근 왕복의 사용자 메시지만 고칠 수 있다. 그 뒤의 AI 응답은 같은 캐릭터로 다시 만든다.
+    // 가장 최근의 사용자 메시지만 고칠 수 있다. AI 응답은 다시 만들지 않고 바로 뒤의 기존 응답을 그대로 돌려준다.
+    // 뒤에 과거 일기 비교 답변이 붙어 있어도 고칠 수 있고, 비교 답변과 일기 연결은 그대로 남는다.
     @Transactional
     public UpdateMessageResponse updateMessage(
             UUID userId,
@@ -243,22 +244,21 @@ public class ChatService {
             throw new BusinessException(ChatErrorCode.SESSION_CLOSED);
         }
 
-        // 마지막 메시지가 이 사용자 메시지에 대한 AI 응답이어야 한다.
-        ChatMessage latest = messageRepository.findTopBySessionIdOrderBySequenceNoDesc(sessionId).orElseThrow();
-        boolean isLatestTurn = userMessage.getSenderRole() == SenderRole.USER
-                && latest.getSenderRole() == SenderRole.ASSISTANT
-                && latest.getSequenceNo() == userMessage.getSequenceNo() + 1;
-        if (!isLatestTurn) {
+        boolean isLatestUserMessage = messageRepository
+                .findTopBySessionIdAndSenderRoleOrderBySequenceNoDesc(sessionId, SenderRole.USER)
+                .map(latest -> latest.getId().equals(userMessage.getId()))
+                .orElse(false);
+        if (!isLatestUserMessage) {
             throw new BusinessException(ChatErrorCode.MESSAGE_NOT_EDITABLE);
         }
 
         userMessage.edit(request.content(), Instant.now().truncatedTo(ChronoUnit.SECONDS));
-        List<ChatMessage> history = messageRepository.findBySessionIdOrderBySequenceNo(sessionId).stream()
-                .filter(message -> message.getSequenceNo() <= userMessage.getSequenceNo())
-                .toList();
-        latest.replaceReply(generateReply(latest.getCharacter(), history));
+        // 메시지 전송은 사용자 메시지와 AI 응답을 이어진 순번으로 함께 저장하므로 바로 뒤 순번이 그 응답이다.
+        ChatMessage reply = messageRepository
+                .findBySessionIdAndSequenceNo(sessionId, userMessage.getSequenceNo() + 1)
+                .orElseThrow();
 
-        return new UpdateMessageResponse(toMessageResponse(userMessage), toMessageResponse(latest));
+        return new UpdateMessageResponse(toMessageResponse(userMessage), toMessageResponse(reply));
     }
 
     // 일기 파트의 AI 초안 생성(PUT /chat-sessions/{sessionId}/diary-draft)에서 호출한다.
