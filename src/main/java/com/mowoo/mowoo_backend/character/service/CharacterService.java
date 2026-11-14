@@ -2,6 +2,7 @@ package com.mowoo.mowoo_backend.character.service;
 
 import com.mowoo.mowoo_backend.character.dto.response.CharacterItem;
 import com.mowoo.mowoo_backend.character.dto.response.CharacterResponse;
+import com.mowoo.mowoo_backend.character.entity.UserCharacter;
 import com.mowoo.mowoo_backend.character.exception.CharacterErrorCode;
 import com.mowoo.mowoo_backend.character.repository.AiCharacterRepository;
 import com.mowoo.mowoo_backend.character.repository.UserCharacterRepository;
@@ -40,7 +41,7 @@ public class CharacterService {
         var character = characters.findById(characterId)
                 .orElseThrow(() -> new BusinessException(CharacterErrorCode.CHARACTER_NOT_FOUND));
         return CharacterResponse.from(CharacterItem.from(character,
-                ownerships.findCharacterIdsByUserId(userId).contains(characterId)));
+                ownerships.existsById(new UserCharacter.Id(userId, characterId))));
     }
 
     private void requireUser(UUID userId) {
