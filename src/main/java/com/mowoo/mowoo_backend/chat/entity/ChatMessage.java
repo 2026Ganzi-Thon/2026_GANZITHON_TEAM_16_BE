@@ -89,9 +89,4 @@ public class ChatMessage {
         this.content = content;
         this.editedAt = editedAt;
     }
-
-    // 사용자 메시지 수정에 맞춰 AI 응답을 다시 만든다. 명세 예시대로 응답의 editedAt은 남기지 않는다.
-    public void replaceReply(String content) {
-        this.content = content;
-    }
 }

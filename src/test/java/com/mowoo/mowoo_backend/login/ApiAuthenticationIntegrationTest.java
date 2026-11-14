@@ -172,6 +172,9 @@ class ApiAuthenticationIntegrationTest {
         Map<?, ?> googleRequest = (Map<?, ?>) schemas.get("SocialCodeRequest");
         assertThat(((Map<?, ?>) googleRequest.get("properties")).keySet()).isEqualTo(Set.of("code"));
         assertThat(schemas.containsKey("ErrorResponse")).isTrue();
+        Map<?, ?> messageEdit = (Map<?, ?>) ((Map<?, ?>) paths.get("/api/v1/chat-sessions/{sessionId}/messages/{messageId}")).get("patch");
+        assertThat((String) messageEdit.get("description")).contains("AI 답변은 다시 만들지 않습니다");
+        assertThat(((Map<?, ?>) messageEdit.get("responses")).containsKey("503")).isFalse();
     }
 
     private void assertProtectedOperationsReject(String token) throws Exception {

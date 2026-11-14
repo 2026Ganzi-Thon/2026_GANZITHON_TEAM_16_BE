@@ -8,10 +8,12 @@ import com.mowoo.mowoo_backend.chat.ai.ChatSummaryAiClient;
 import com.mowoo.mowoo_backend.chat.ai.DiaryComparisonAiClient;
 import com.mowoo.mowoo_backend.chat.ai.DiarySuggestionAiClient;
 import com.mowoo.mowoo_backend.chat.dto.request.CreateDiaryReferenceRequest;
+import com.mowoo.mowoo_backend.chat.dto.request.UpdateMessageRequest;
 import com.mowoo.mowoo_backend.chat.dto.response.ChatMessageResponse;
 import com.mowoo.mowoo_backend.chat.dto.response.ChatSessionDetailResponse;
 import com.mowoo.mowoo_backend.chat.dto.response.CreateDiaryReferenceResponse;
 import com.mowoo.mowoo_backend.chat.dto.response.DiarySuggestionResponse;
+import com.mowoo.mowoo_backend.chat.dto.response.UpdateMessageResponse;
 import com.mowoo.mowoo_backend.chat.entity.ChatMessage;
 import com.mowoo.mowoo_backend.chat.entity.ChatSession;
 import com.mowoo.mowoo_backend.chat.entity.DiaryReference;
@@ -193,6 +195,30 @@ class ChatServiceDiaryReferenceTest {
                 .containsExactly(List.of(), List.of(), message.diaryReferences());
         // 사용자 메시지 없이 추가된 답변은 왕복 수에 들어가지 않는다.
         assertThat(detail.session().completedTurns()).isEqualTo(1);
+    }
+
+    @Test
+    void 과거_일기를_연결한_뒤에도_고민_메시지를_고칠_수_있고_비교_답변과_일기_참조는_남는다() {
+        Diary diary = savedDiary(user, LocalDate.of(2026, 9, 15), "발표를 앞둔 날", "발표 전날 잠이 오지 않았다.");
+        given(diaryComparisonAiClient.compare(any())).willReturn("두 기록 모두 다른 사람의 평가를 걱정했어요.");
+        ChatMessageResponse comparison = chatService.createDiaryReference(user.getId(), session.getId(),
+                new CreateDiaryReferenceRequest(concern.getId(), diary.getId())).assistantMessage();
+
+        UpdateMessageResponse response = chatService.updateMessage(user.getId(), session.getId(), concern.getId(),
+                new UpdateMessageRequest("내일 면접이 너무 걱정돼요."));
+
+        assertThat(response.userMessage().content()).isEqualTo("내일 면접이 너무 걱정돼요.");
+        assertThat(response.assistantMessage().id()).isEqualTo(reply.getId());
+        assertThat(response.assistantMessage().content()).isEqualTo("어떤 점이 가장 걱정되나요?");
+        verifyNoInteractions(chatAiClient);
+
+        em.flush();
+        em.clear();
+        List<ChatMessageResponse> items =
+                chatService.getSession(user.getId(), session.getId(), new CursorRequest(null, null)).messages().items();
+        assertThat(items).extracting(ChatMessageResponse::content).containsExactly(
+                "내일 면접이 너무 걱정돼요.", "어떤 점이 가장 걱정되나요?", "두 기록 모두 다른 사람의 평가를 걱정했어요.");
+        assertThat(items.getLast().diaryReferences()).isEqualTo(comparison.diaryReferences());
     }
 
     @Test

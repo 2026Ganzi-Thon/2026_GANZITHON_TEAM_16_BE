@@ -111,7 +111,7 @@ public class ChatSessionController {
         return chatService.sendMessage(userId(jwt), sessionId, request);
     }
 
-    @Operation(summary = "최근 메시지 수정", description = "진행 중인 대화의 최근 사용자 메시지를 수정하고 바로 다음 AI 답변을 다시 생성합니다. 수정할 수 없는 메시지는 409이며 AI 생성 실패 시 기존 내용을 유지합니다.")
+    @Operation(summary = "최근 메시지 수정", description = "진행 중인 대화의 가장 최근 사용자 메시지 내용과 수정 시각만 변경합니다. AI 답변은 다시 만들지 않습니다. 과거 일기 비교 답변과 일기 참조도 유지됩니다. 수정 내용은 다음 AI 대화의 기록에 반영됩니다. 이전 사용자 메시지·AI 메시지·종료된 대화는 수정할 수 없으며 409를 반환합니다.")
     @PatchMapping("/{sessionId}/messages/{messageId}")
     public UpdateMessageResponse updateMessage(
             @AuthenticationPrincipal Jwt jwt,
