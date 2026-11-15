@@ -4,13 +4,13 @@
 
 - 리전: 시드니 `ap-southeast-2`, 프로젝트: GANZITHON.
 - 환경: `mowoo-prod`, 플랫폼: Corretto 21 / AL2023 4.14.3, 단일 EC2 `t3.small`.
-- [HTTPS 상태 확인](https://15.135.13.89/health), [HTTPS Swagger](https://15.135.13.89/swagger-ui/index.html).
+- [HTTPS 상태 확인](https://api.mowoo.kro.kr/health), [HTTPS Swagger](https://api.mowoo.kro.kr/swagger-ui/index.html).
 - Beanstalk Ready / Green, CloudFormation 스택 생성 완료.
 - 실제 `/health`·OpenAPI 200, 비로그인 내 정보·캐릭터 조회 401, 빈 카카오 인가 코드 400.
 - localhost 프론트 출처 허용, 다른 출처 CORS 403 확인.
 - RDS 비공개·암호화·백업 1일 확인. 앱 계정 생성 및 인증서를 검증하는 TLS 접속 성공.
 - DB 초기화용 임시 EC2와 IAM 역할/프로필은 작업 후 스택과 함께 삭제 완료.
-- 외부 HTTPS는 고정 공인 IP의 무료 Let’s Encrypt 인증서로 구성한다. 프론트/API 기본 주소는 **https://15.135.13.89**를 사용한다. 기존 Beanstalk 도메인에는 이 IP 인증서가 적용되지 않는다.
+- 외부 HTTPS는 무료 Let’s Encrypt 도메인 인증서로 구성한다. 프론트/API 기본 주소는 **https://api.mowoo.kro.kr**를 사용한다. 기존 IP HTTPS도 유지한다.
 - 로컬에도 Upstage 키가 없어 AI 호출은 비활성화 상태다. 첨부 저장 S3도 별도 연동 전이다.
 - GitHub 테스트·빌드·artifact 업로드는 통과했다. OIDC 공급자 관리가 계정 SCP로 거부되어 AWS 자동 배포는 미완료이며 `EB_DEPLOY_ENABLED=false`로 유지한다. 장기 액세스 키로 우회하지 않는다.
 
@@ -120,7 +120,7 @@ aws elasticbeanstalk list-platform-versions --profile mowoo --region ap-southeas
 
 ### DNS 도메인 연결
 
-도메인 관리 화면에서 `api.mowoo.kro.kr`의 A 레코드를 환경 EIP인 `15.135.13.89`로 설정한다. `HttpsDomain=api.mowoo.kro.kr` 파라미터는 Beanstalk의 `HTTPS_DOMAIN` 환경 변수로 전달된다.
+도메인 관리 화면에서 `api.mowoo.kro.kr`의 A 레코드를 환경 EIP인 `15.135.13.89`로 설정한다. DNS 반영과 정식 인증서 발급을 확인했다. `HttpsDomain=api.mowoo.kro.kr` 파라미터는 Beanstalk의 `HTTPS_DOMAIN` 환경 변수로 전달된다.
 
 HTTPS hook은 도메인 소유 확인용 HTTP-01 경로를 유지하고, 도메인 인증서를 `mowoo-domain` 이름으로 발급한다. IP 인증서와 IP HTTPS 접속은 유지하며 일반 HTTP 요청의 목적지는 도메인 HTTPS가 된다. 도메인용 nginx virtual host도 기존 TLS 프록시 설정을 공유한다. 자동 갱신은 IP·도메인 인증서를 각각 처리한다.
 
@@ -164,7 +164,7 @@ GitHub 저장소 Settings → Secrets and variables → Actions → Variables에
 | --- | --- |
 | EB_RELEASE_BUCKET | mowoo-github 스택 ReleaseBucket 출력 |
 | EB_DEPLOY_ROLE_ARN | mowoo-github 스택 DeployRoleArn 출력 |
-| EB_HEALTHCHECK_URL | https://15.135.13.89/health |
+| EB_HEALTHCHECK_URL | https://api.mowoo.kro.kr/health |
 | EB_DEPLOY_ENABLED | 계정의 OIDC 제한 해제·배포 역할 생성·첫 환경 검증 완료 후 true |
 
 PR은 MySQL 8.4에서 테스트만 수행한다. develop push/수동 실행은 테스트에서 만든 동일 ZIP을 다운로드해 배포한다. 배포 후 버전과 Green 상태, `/health` 응답을 확인한다. 실패 시 이전 버전으로 롤백을 시도하고 워크플로를 실패 처리한다. 환경이 Ready가 아니거나 롤백에도 실패하면 수동 복구가 필요하다.
