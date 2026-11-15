@@ -1,5 +1,23 @@
 # MOWOO Elastic Beanstalk 배포
 
+## 실제 배포 확인 (2026-11-15)
+
+- 리전: 시드니 `ap-southeast-2`, 프로젝트: GANZITHON.
+- 환경: `mowoo-prod`, 플랫폼: Corretto 21 / AL2023 4.14.3, 단일 EC2 `t3.small`.
+- [상태 확인](http://mowoo-prod.eba-mhigsuxe.ap-southeast-2.elasticbeanstalk.com/health), [Swagger](http://mowoo-prod.eba-mhigsuxe.ap-southeast-2.elasticbeanstalk.com/swagger-ui/index.html).
+- Beanstalk Ready / Green, CloudFormation 스택 생성 완료.
+- 실제 `/health`·OpenAPI 200, 비로그인 내 정보·캐릭터 조회 401, 빈 카카오 인가 코드 400.
+- localhost 프론트 출처 허용, 다른 출처 CORS 403 확인.
+- RDS 비공개·암호화·백업 1일 확인. 앱 계정 생성 및 인증서를 검증하는 TLS 접속 성공.
+- DB 초기화용 임시 EC2와 IAM 역할/프로필은 작업 후 스택과 함께 삭제 완료.
+- 외부 HTTPS는 **미설정**이다. 현재 주소는 기본 동작 검증용이며 실제 로그인·개인 기록 사용 전 HTTPS를 연결해야 한다.
+- 로컬에도 Upstage 키가 없어 AI 호출은 비활성화 상태다. 첨부 저장 S3도 별도 연동 전이다.
+- GitHub 테스트·빌드·artifact 업로드는 통과했다. OIDC 공급자 관리가 계정 SCP로 거부되어 AWS 자동 배포는 미완료이며 `EB_DEPLOY_ENABLED=false`로 유지한다. 장기 액세스 키로 우회하지 않는다.
+
+### 비용 기준
+
+AWS Price List API에서 확인한 시드니 온디맨드 단가는 EC2 Linux t3.small **0.0264 USD/시간**, RDS MySQL Single-AZ db.t4g.micro **0.025 USD/시간**이다. 730시간 기준 인스턴스 합계는 약 **37.5 USD/월**이며 디스크·공인 IPv4·로그·Secrets Manager·전송량·CPU 추가 크레딧·세금은 제외한다. 무료 크레딧 적용 후 실청구액은 별도로 계정에서 확인한다. ALB와 NAT Gateway는 생성하지 않았다.
+
 ## 구성과 현재 범위
 
 시드니 리전(`ap-southeast-2`)에 다음 스택을 순서대로 배포한다.
