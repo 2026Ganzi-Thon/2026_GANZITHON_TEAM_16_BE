@@ -118,6 +118,14 @@ aws elasticbeanstalk list-platform-versions --profile mowoo --region ap-southeas
 
 사용 가능한 최신 Ready 플랫폼 ARN을 선택한다. `infra/environment.yaml`의 모든 필수 파라미터를 실제 네트워크 출력, 비밀 ARN, 카카오 설정, 업로드한 번들 정보로 채운다. 파라미터에는 비밀 값 자체가 들어가지 않는다. CloudFormation으로 `mowoo-environment` 스택을 만들고 IAM 생성을 허용한다. CLI에서는 `create-stack --parameters file://<로컬 파라미터 JSON> --capabilities CAPABILITY_IAM`을 사용할 수 있다.
 
+### DNS 도메인 연결
+
+도메인 관리 화면에서 `api.mowoo.kro.kr`의 A 레코드를 환경 EIP인 `15.135.13.89`로 설정한다. `HttpsDomain=api.mowoo.kro.kr` 파라미터는 Beanstalk의 `HTTPS_DOMAIN` 환경 변수로 전달된다.
+
+HTTPS hook은 도메인 소유 확인용 HTTP-01 경로를 유지하고, 도메인 인증서를 `mowoo-domain` 이름으로 발급한다. IP 인증서와 IP HTTPS 접속은 유지하며 일반 HTTP 요청의 목적지는 도메인 HTTPS가 된다. 도메인용 nginx virtual host도 기존 TLS 프록시 설정을 공유한다. 자동 갱신은 IP·도메인 인증서를 각각 처리한다.
+
+`kro.kr`처럼 여러 사람이 공유하는 무료 도메인은 CA의 등록 도메인 단위 신규 발급 한도에 걸릴 수 있다. CA가 알려준 Retry-After 시각 전에는 재요청하지 않는다. 시험 환경에서 DNS·HTTP-01 검증을 먼저 확인하고, 발급 성공 후 정상 신뢰 저장소로 HTTPS·SNI·갱신을 검증한다. 한도에 걸렸다고 인증서 검증을 끄거나 자체 서명 인증서로 대체하지 않는다.
+
 ### IP 주소 HTTPS와 자동 갱신
 
 `EnableIpHttps=true`가 기본값이다. Beanstalk 앱 배포와 환경 설정 변경의 postdeploy hook이 `scripts/configure-https.sh`를 실행한다. 도메인 구매·ALB·CloudFront 추가 없이 기존 EIP에서 nginx가 TLS를 종료하고, localhost의 Java 5000 포트로 전달한다.
@@ -139,6 +147,7 @@ systemctl status mowoo-certbot-renew.timer
 systemctl list-timers mowoo-certbot-renew.timer
 journalctl -u mowoo-certbot-renew.service
 /opt/mowoo-certbot/bin/certbot renew --cert-name mowoo-ip --dry-run
+/opt/mowoo-certbot/bin/certbot renew --cert-name mowoo-domain --dry-run
 ```
 
 [Let’s Encrypt IP 인증서 안내](https://letsencrypt.org/2026/03/11/shorter-certs-certbot)

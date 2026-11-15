@@ -25,6 +25,11 @@ Parameters:
     Type: String
     Default: 'true'
     AllowedValues: ['true', 'false']
+  HttpsDomain:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^[a-z0-9][a-z0-9.-]*[.][a-z0-9]+$'
+    Description: Optional DNS name with an A record pointing at the environment EIP
 Resources:
   InstanceRole:
     Type: AWS::IAM::Role
@@ -107,6 +112,7 @@ Resources:
         - {Namespace: 'aws:elasticbeanstalk:cloudwatch:logs', OptionName: DeleteOnTerminate, Value: 'false'}
         - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: PORT, Value: '5000'}
         - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: ENABLE_IP_HTTPS, Value: !Ref EnableIpHttps}
+        - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: HTTPS_DOMAIN, Value: !Ref HttpsDomain}
         - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: DB_URL, Value: !Ref DatabaseUrl}
         - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: DB_USERNAME, Value: !Ref DatabaseUsername}
         - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: KAKAO_CLIENT_ID, Value: !Ref KakaoClientId}
