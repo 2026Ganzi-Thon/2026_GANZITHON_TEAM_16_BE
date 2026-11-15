@@ -21,6 +21,10 @@ Parameters:
   KakaoRedirectUri: {Type: String}
   CorsAllowedOrigins: {Type: String, Default: 'http://localhost:3000'}
   AppInstanceType: {Type: String, Default: t3.small}
+  EnableIpHttps:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
 Resources:
   InstanceRole:
     Type: AWS::IAM::Role
@@ -102,6 +106,7 @@ Resources:
         - {Namespace: 'aws:elasticbeanstalk:cloudwatch:logs', OptionName: RetentionInDays, Value: '7'}
         - {Namespace: 'aws:elasticbeanstalk:cloudwatch:logs', OptionName: DeleteOnTerminate, Value: 'false'}
         - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: PORT, Value: '5000'}
+        - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: ENABLE_IP_HTTPS, Value: !Ref EnableIpHttps}
         - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: DB_URL, Value: !Ref DatabaseUrl}
         - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: DB_USERNAME, Value: !Ref DatabaseUsername}
         - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: KAKAO_CLIENT_ID, Value: !Ref KakaoClientId}

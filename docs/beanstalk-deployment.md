@@ -4,13 +4,13 @@
 
 - 리전: 시드니 `ap-southeast-2`, 프로젝트: GANZITHON.
 - 환경: `mowoo-prod`, 플랫폼: Corretto 21 / AL2023 4.14.3, 단일 EC2 `t3.small`.
-- [상태 확인](http://mowoo-prod.eba-mhigsuxe.ap-southeast-2.elasticbeanstalk.com/health), [Swagger](http://mowoo-prod.eba-mhigsuxe.ap-southeast-2.elasticbeanstalk.com/swagger-ui/index.html).
+- [HTTPS 상태 확인](https://15.135.13.89/health), [HTTPS Swagger](https://15.135.13.89/swagger-ui/index.html).
 - Beanstalk Ready / Green, CloudFormation 스택 생성 완료.
 - 실제 `/health`·OpenAPI 200, 비로그인 내 정보·캐릭터 조회 401, 빈 카카오 인가 코드 400.
 - localhost 프론트 출처 허용, 다른 출처 CORS 403 확인.
 - RDS 비공개·암호화·백업 1일 확인. 앱 계정 생성 및 인증서를 검증하는 TLS 접속 성공.
 - DB 초기화용 임시 EC2와 IAM 역할/프로필은 작업 후 스택과 함께 삭제 완료.
-- 외부 HTTPS는 **미설정**이다. 현재 주소는 기본 동작 검증용이며 실제 로그인·개인 기록 사용 전 HTTPS를 연결해야 한다.
+- 외부 HTTPS는 고정 공인 IP의 무료 Let’s Encrypt 인증서로 구성한다. 프론트/API 기본 주소는 **https://15.135.13.89**를 사용한다. 기존 Beanstalk 도메인에는 이 IP 인증서가 적용되지 않는다.
 - 로컬에도 Upstage 키가 없어 AI 호출은 비활성화 상태다. 첨부 저장 S3도 별도 연동 전이다.
 - GitHub 테스트·빌드·artifact 업로드는 통과했다. OIDC 공급자 관리가 계정 SCP로 거부되어 AWS 자동 배포는 미완료이며 `EB_DEPLOY_ENABLED=false`로 유지한다. 장기 액세스 키로 우회하지 않는다.
 
@@ -110,7 +110,7 @@ Secrets Manager의 사용자 관리 KMS 키로 암호화했다면 인스턴스 �
 python scripts/package-beanstalk.py
 ```
 
-`build/beanstalk.zip`에는 `application.jar`, `Procfile`, `.platform`만 들어간다. .env와 소스, 테스트 결과는 포함되지 않는다. ZIP을 `ReleaseBucket` 출력 버킷의 `releases/<고유 버전>.zip`으로 업로드한다.
+`build/beanstalk.zip`에는 `application.jar`, `Procfile`, `.platform`, `scripts/configure-https.sh`만 들어간다. .env와 소스, 테스트 결과는 포함되지 않는다. ZIP을 `ReleaseBucket` 출력 버킷의 `releases/<고유 버전>.zip`으로 업로드한다.
 
 ```powershell
 aws elasticbeanstalk list-platform-versions --profile mowoo --region ap-southeast-2
@@ -118,9 +118,30 @@ aws elasticbeanstalk list-platform-versions --profile mowoo --region ap-southeas
 
 사용 가능한 최신 Ready 플랫폼 ARN을 선택한다. `infra/environment.yaml`의 모든 필수 파라미터를 실제 네트워크 출력, 비밀 ARN, 카카오 설정, 업로드한 번들 정보로 채운다. 파라미터에는 비밀 값 자체가 들어가지 않는다. CloudFormation으로 `mowoo-environment` 스택을 만들고 IAM 생성을 허용한다. CLI에서는 `create-stack --parameters file://<로컬 파라미터 JSON> --capabilities CAPABILITY_IAM`을 사용할 수 있다.
 
-처음에 인증서가 없다면 HTTP `/health`까지만 검증한다. **실제 로그인 연동 전에는 도메인과 ACM 인증서를 연결해 HTTPS를 설정한다.** prod의 refresh cookie는 Secure=true를 유지한다. 인증서 없이 HTTP로 로그인하면 refresh cookie가 정상적으로 동작하지 않을 수 있다.
+### IP 주소 HTTPS와 자동 갱신
 
-현재 단일 인스턴스 구성은 ALB와 ACM 리스너를 생성하지 않는다. 실제 사용자 로그인 연동 전에는 도메인을 정하고 nginx에 유효한 인증서를 설치해 HTTPS를 구성해야 한다. 운영 refresh cookie의 Secure=true는 유지한다.
+`EnableIpHttps=true`가 기본값이다. Beanstalk 앱 배포와 환경 설정 변경의 postdeploy hook이 `scripts/configure-https.sh`를 실행한다. 도메인 구매·ALB·CloudFront 추가 없이 기존 EIP에서 nginx가 TLS를 종료하고, localhost의 Java 5000 포트로 전달한다.
+
+- Certbot 5.10.0과 Python 3.11 전용 가상 환경을 사용한다.
+- IMDSv2로 현재 공인 IP를 읽고 HTTP-01 webroot 검증으로 shortlived IP 인증서를 발급한다.
+- 인증서·개인 키는 서버의 `/etc/letsencrypt`에만 보관하며 Git·ZIP·로그로 복사하지 않는다.
+- TLS 1.2/1.3과 `X-Forwarded-Proto: https`를 설정해 Swagger도 HTTPS 서버 주소를 사용한다.
+- 일반 HTTP 요청은 HTTPS IP로 308 이동한다. `/health`와 `/.well-known/acme-challenge/`만 HTTP를 유지한다.
+- 프론트는 처음부터 HTTPS 기본 주소를 사용해야 한다. HTTP로 보낸 요청 본문이 리디렉션으로 소급해서 암호화되는 것은 아니다.
+- 인증서 유효기간은 약 6일(160시간)이다. `mowoo-certbot-renew.timer`가 부팅 후 및 하루 두 번 갱신 필요 여부를 확인하고, 실제 갱신 시 nginx를 reload한다.
+- 앱 재배포와 환경 설정 변경에서도 HTTPS 구성을 다시 적용한다. 인스턴스 교체 시 새 인증서를 발급한다. EIP 자체가 바뀌면 프론트 기본 주소와 GitHub health URL도 갱신해야 한다.
+- CA 계정은 연락처 이메일 없이 등록한다. 별도의 실패 이메일 알림은 구성하지 않았으며, 갱신 상태는 systemd journal에서 확인한다.
+
+서버에서 확인할 명령:
+
+```bash
+systemctl status mowoo-certbot-renew.timer
+systemctl list-timers mowoo-certbot-renew.timer
+journalctl -u mowoo-certbot-renew.service
+/opt/mowoo-certbot/bin/certbot renew --cert-name mowoo-ip --dry-run
+```
+
+[Let’s Encrypt IP 인증서 안내](https://letsencrypt.org/2026/03/11/shorter-certs-certbot)
 
 DB 백업 보존은 현재 무료 플랜 제약에 맞춰 **1일**이다. 처음 7일 설정은 AWS에서 거절되었으며, 실제 데이터 보존 요구에 따라 계정 플랜과 백업 정책을 다시 검토한다.
 
@@ -134,6 +155,7 @@ GitHub 저장소 Settings → Secrets and variables → Actions → Variables에
 | --- | --- |
 | EB_RELEASE_BUCKET | mowoo-github 스택 ReleaseBucket 출력 |
 | EB_DEPLOY_ROLE_ARN | mowoo-github 스택 DeployRoleArn 출력 |
+| EB_HEALTHCHECK_URL | https://15.135.13.89/health |
 | EB_DEPLOY_ENABLED | 계정의 OIDC 제한 해제·배포 역할 생성·첫 환경 검증 완료 후 true |
 
 PR은 MySQL 8.4에서 테스트만 수행한다. develop push/수동 실행은 테스트에서 만든 동일 ZIP을 다운로드해 배포한다. 배포 후 버전과 Green 상태, `/health` 응답을 확인한다. 실패 시 이전 버전으로 롤백을 시도하고 워크플로를 실패 처리한다. 환경이 Ready가 아니거나 롤백에도 실패하면 수동 복구가 필요하다.

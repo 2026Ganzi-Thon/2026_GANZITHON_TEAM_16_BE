@@ -78,6 +78,7 @@ jobs:
       EB_APP: mowoo-backend
       EB_ENV: mowoo-prod
       RELEASE_BUCKET: ${{ vars.EB_RELEASE_BUCKET }}
+      HEALTHCHECK_URL: ${{ vars.EB_HEALTHCHECK_URL }}
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -105,7 +106,7 @@ jobs:
             actual=$(aws elasticbeanstalk describe-environments --environment-names "$EB_ENV" --query 'Environments[0].VersionLabel' --output text)
             health=$(aws elasticbeanstalk describe-environments --environment-names "$EB_ENV" --query 'Environments[0].Health' --output text)
             host=$(aws elasticbeanstalk describe-environments --environment-names "$EB_ENV" --query 'Environments[0].CNAME' --output text)
-            if [[ "$actual" == "$version" && "$health" == Green ]] && curl --fail --silent --show-error --retry 8 --retry-all-errors --retry-delay 5 --max-time 15 "http://${host}/health"; then
+            if [[ "$actual" == "$version" && "$health" == Green ]] && curl --fail --silent --show-error --retry 8 --retry-all-errors --retry-delay 5 --max-time 15 "${HEALTHCHECK_URL:-http://${host}/health}"; then
               success=true
             fi
           fi

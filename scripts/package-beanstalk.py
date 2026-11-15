@@ -10,6 +10,7 @@ output = root / "build/beanstalk.zip"
 with ZipFile(output, "w", ZIP_DEFLATED) as bundle:
     bundle.write(jars[0], "application.jar")
     bundle.write(root / "Procfile", "Procfile")
+    bundle.write(root / "scripts/configure-https.sh", "scripts/configure-https.sh")
     for path in sorted((root / ".platform").rglob("*")):
         if path.is_file():
             bundle.write(path, path.relative_to(root).as_posix())

@@ -6,3 +6,4 @@ Procfile text eol=lf
 .github/workflows/** text eol=lf
 infra/** text eol=lf
 scripts/*.py text eol=lf
+scripts/*.sh text eol=lf
