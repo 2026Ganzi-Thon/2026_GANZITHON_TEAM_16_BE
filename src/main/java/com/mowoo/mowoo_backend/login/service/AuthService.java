@@ -3,6 +3,9 @@ package com.mowoo.mowoo_backend.login.service;
 import com.mowoo.mowoo_backend.character.service.DefaultCharacterService;
 import com.mowoo.mowoo_backend.global.exception.BusinessException;
 import com.mowoo.mowoo_backend.login.client.KakaoClient;
+import com.mowoo.mowoo_backend.login.client.GoogleClient;
+import com.mowoo.mowoo_backend.login.client.NaverClient;
+import com.mowoo.mowoo_backend.login.client.SocialUser;
 import com.mowoo.mowoo_backend.login.domain.RefreshToken;
 import com.mowoo.mowoo_backend.login.domain.UserAuthIdentity;
 import com.mowoo.mowoo_backend.login.domain.UserAuthIdentity.Provider;
@@ -33,6 +36,8 @@ import java.util.UUID;
 public class AuthService {
 
     private final KakaoClient kakaoClient;
+    private final GoogleClient googleClient;
+    private final NaverClient naverClient;
     private final DefaultCharacterService defaultCharacterService;
     private final UserRepository userRepository;
     private final UserAuthIdentityRepository identityRepository;
@@ -42,8 +47,21 @@ public class AuthService {
 
     public LoginResult handleKakaoCode(String code) {
         KakaoClient.KakaoUser kakaoUser = kakaoClient.getUser(code);
+        return login(new SocialUser(Provider.KAKAO, kakaoUser.subject(), kakaoUser.nickname(),
+                kakaoUser.email(), kakaoUser.profileImageUrl()));
+    }
+
+    public LoginResult handleGoogleCode(String code) {
+        return login(googleClient.getUser(code));
+    }
+
+    public LoginResult handleNaverCode(String code, String state) {
+        return login(naverClient.getUser(code, state));
+    }
+
+    private LoginResult login(SocialUser socialUser) {
         return transactions.execute(status -> {
-            User user = findOrCreateUser(kakaoUser);
+            User user = findOrCreateUser(socialUser);
             defaultCharacterService.grantTo(user);
             return issueTokens(user);
         });
@@ -82,32 +100,32 @@ public class AuthService {
                 .ifPresent(token -> token.revoke(Instant.now()));
     }
 
-    private User findOrCreateUser(KakaoClient.KakaoUser kakaoUser) {
-        byte[] subject = kakaoUser.subject().getBytes(StandardCharsets.UTF_8);
-        return identityRepository.findByProviderAndProviderSubject(Provider.KAKAO, subject)
+    private User findOrCreateUser(SocialUser socialUser) {
+        byte[] subject = socialUser.subject().getBytes(StandardCharsets.UTF_8);
+        return identityRepository.findByProviderAndProviderSubject(socialUser.provider(), subject)
                 .map(identity -> {
                     User user = userRepository.findByIdForUpdate(identity.getUser().getId())
                             .orElseThrow(() -> new BusinessException(AuthErrorCode.SOCIAL_IDENTITY_CONFLICT));
-                    user.updateProfileImageUrl(kakaoUser.profileImageUrl());
+                    user.updateProfileImageUrl(socialUser.profileImageUrl());
                     return user;
                 })
-                .orElseGet(() -> registerUser(kakaoUser, subject));
+                .orElseGet(() -> registerUser(socialUser, subject));
     }
 
-    private User registerUser(KakaoClient.KakaoUser kakaoUser, byte[] subject) {
-        String nickname = kakaoUser.nickname().strip();
+    private User registerUser(SocialUser socialUser, byte[] subject) {
+        String nickname = socialUser.nickname().strip();
         if (nickname.isBlank()) {
             nickname = "모우 유저";
         } else if (nickname.codePointCount(0, nickname.length()) > 50) {
             nickname = nickname.substring(0, nickname.offsetByCodePoints(0, 50));
         }
 
-        String email = kakaoUser.email();
+        String email = socialUser.email();
         User user = new User(nickname, email != null && email.length() <= 254 ? email : null, null);
-        user.updateProfileImageUrl(kakaoUser.profileImageUrl());
+        user.updateProfileImageUrl(socialUser.profileImageUrl());
         userRepository.save(user);
         try {
-            identityRepository.saveAndFlush(new UserAuthIdentity(user, Provider.KAKAO, subject));
+            identityRepository.saveAndFlush(new UserAuthIdentity(user, socialUser.provider(), subject));
         } catch (DataIntegrityViolationException exception) {
             throw new BusinessException(AuthErrorCode.SOCIAL_IDENTITY_CONFLICT);
         }
