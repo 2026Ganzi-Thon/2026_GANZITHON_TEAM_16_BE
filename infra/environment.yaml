@@ -6,7 +6,6 @@ Parameters:
   PlatformArn: {Type: String}
   VpcId: {Type: AWS::EC2::VPC::Id}
   PublicSubnets: {Type: List<AWS::EC2::Subnet::Id>}
-  LoadBalancerSecurityGroupId: {Type: AWS::EC2::SecurityGroup::Id}
   ApplicationSecurityGroupId: {Type: AWS::EC2::SecurityGroup::Id}
   BundleBucket: {Type: String}
   BundleKey: {Type: String}
@@ -21,13 +20,7 @@ Parameters:
   KakaoSecretArn: {Type: String}
   KakaoRedirectUri: {Type: String}
   CorsAllowedOrigins: {Type: String, Default: 'http://localhost:3000'}
-  CertificateArn:
-    Type: String
-    Default: ''
-    Description: Optional ACM certificate in the same region; HTTPS required for real login
   AppInstanceType: {Type: String, Default: t3.small}
-Conditions:
-  HasCertificate: !Not [!Equals [!Ref CertificateArn, '']]
 Resources:
   InstanceRole:
     Type: AWS::IAM::Role
@@ -92,25 +85,17 @@ Resources:
       PlatformArn: !Ref PlatformArn
       VersionLabel: !Ref InitialVersion
       OptionSettings:
-        - {Namespace: 'aws:elasticbeanstalk:environment', OptionName: EnvironmentType, Value: LoadBalanced}
-        - {Namespace: 'aws:elasticbeanstalk:environment', OptionName: LoadBalancerType, Value: application}
+        - {Namespace: 'aws:elasticbeanstalk:environment', OptionName: EnvironmentType, Value: SingleInstance}
         - {Namespace: 'aws:elasticbeanstalk:environment', OptionName: ServiceRole, Value: !GetAtt ServiceRole.Arn}
         - {Namespace: 'aws:ec2:vpc', OptionName: VPCId, Value: !Ref VpcId}
         - {Namespace: 'aws:ec2:vpc', OptionName: Subnets, Value: !Join [',', !Ref PublicSubnets]}
-        - {Namespace: 'aws:ec2:vpc', OptionName: ELBSubnets, Value: !Join [',', !Ref PublicSubnets]}
         - {Namespace: 'aws:ec2:vpc', OptionName: AssociatePublicIpAddress, Value: 'true'}
-        - {Namespace: 'aws:ec2:vpc', OptionName: ELBScheme, Value: public}
         - {Namespace: 'aws:autoscaling:launchconfiguration', OptionName: IamInstanceProfile, Value: !Ref InstanceProfile}
         - {Namespace: 'aws:autoscaling:launchconfiguration', OptionName: SecurityGroups, Value: !Ref ApplicationSecurityGroupId}
         - {Namespace: 'aws:autoscaling:launchconfiguration', OptionName: DisableDefaultEC2SecurityGroup, Value: 'true'}
         - {Namespace: 'aws:ec2:instances', OptionName: InstanceTypes, Value: !Ref AppInstanceType}
         - {Namespace: 'aws:autoscaling:asg', OptionName: MinSize, Value: '1'}
         - {Namespace: 'aws:autoscaling:asg', OptionName: MaxSize, Value: '1'}
-        - {Namespace: 'aws:elbv2:loadbalancer', OptionName: SecurityGroups, Value: !Ref LoadBalancerSecurityGroupId}
-        - {Namespace: 'aws:elbv2:loadbalancer', OptionName: ManagedSecurityGroup, Value: !Ref LoadBalancerSecurityGroupId}
-        - {Namespace: 'aws:elasticbeanstalk:environment:process:default', OptionName: Port, Value: '80'}
-        - {Namespace: 'aws:elasticbeanstalk:environment:process:default', OptionName: HealthCheckPath, Value: /health}
-        - {Namespace: 'aws:elasticbeanstalk:environment:process:default', OptionName: MatcherHTTPCode, Value: '200'}
         - {Namespace: 'aws:elasticbeanstalk:healthreporting:system', OptionName: SystemType, Value: enhanced}
         - {Namespace: 'aws:elasticbeanstalk:command', OptionName: DeploymentPolicy, Value: AllAtOnce}
         - {Namespace: 'aws:elasticbeanstalk:cloudwatch:logs', OptionName: StreamLogs, Value: 'true'}
@@ -127,18 +112,6 @@ Resources:
         - {Namespace: 'aws:elasticbeanstalk:application:environmentsecrets', OptionName: DB_PASSWORD, Value: !Ref DatabasePasswordSecretArn}
         - {Namespace: 'aws:elasticbeanstalk:application:environmentsecrets', OptionName: JWT_SECRET, Value: !Ref JwtSecretArn}
         - {Namespace: 'aws:elasticbeanstalk:application:environmentsecrets', OptionName: KAKAO_CLIENT_SECRET, Value: !Ref KakaoSecretArn}
-        - !If
-          - HasCertificate
-          - {Namespace: 'aws:elbv2:listener:443', OptionName: ListenerEnabled, Value: 'true'}
-          - !Ref AWS::NoValue
-        - !If
-          - HasCertificate
-          - {Namespace: 'aws:elbv2:listener:443', OptionName: Protocol, Value: HTTPS}
-          - !Ref AWS::NoValue
-        - !If
-          - HasCertificate
-          - {Namespace: 'aws:elbv2:listener:443', OptionName: SSLCertificateArns, Value: !Ref CertificateArn}
-          - !Ref AWS::NoValue
       Tags: [{Key: Project, Value: mowoo}]
 Outputs:
   EnvironmentName: {Value: !Ref Environment}

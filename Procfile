@@ -1,1 +1,1 @@
-web: java -XX:MaxRAMPercentage=65 -Duser.timezone=UTC -jar application.jar --spring.profiles.active=prod
+web: java -XX:MaxRAMPercentage=65 -Duser.timezone=UTC -Djavax.net.ssl.trustStore=/var/app/current/rds-cacerts -Djavax.net.ssl.trustStorePassword=changeit -jar application.jar --spring.profiles.active=prod

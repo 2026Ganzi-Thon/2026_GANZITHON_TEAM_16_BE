@@ -4,12 +4,18 @@ Parameters:
   Repository: {Type: String, Default: '2026Ganzi-Thon/2026_GANZITHON_TEAM_16_BE'}
   ApplicationName: {Type: String, Default: mowoo-backend}
   EnvironmentName: {Type: String, Default: mowoo-prod}
+  EnableOidc:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Enable only after the account allows IAM OIDC provider management
   ExistingOidcProviderArn:
     Type: String
     Default: ''
     Description: Reuse the GitHub OIDC provider if it already exists in this account
 Conditions:
-  CreateProvider: !Equals [!Ref ExistingOidcProviderArn, '']
+  EnableDeployRole: !Equals [!Ref EnableOidc, 'true']
+  CreateProvider: !And [!Condition EnableDeployRole, !Equals [!Ref ExistingOidcProviderArn, '']]
 Resources:
   ReleaseBucket:
     Type: AWS::S3::Bucket
@@ -44,6 +50,7 @@ Resources:
       Url: https://token.actions.githubusercontent.com
       ClientIdList: [sts.amazonaws.com]
   DeployRole:
+    Condition: EnableDeployRole
     Type: AWS::IAM::Role
     Properties:
       MaxSessionDuration: 3600
@@ -84,4 +91,6 @@ Resources:
                 Resource: '*'
 Outputs:
   ReleaseBucket: {Value: !Ref ReleaseBucket}
-  DeployRoleArn: {Value: !GetAtt DeployRole.Arn}
+  DeployRoleArn:
+    Condition: EnableDeployRole
+    Value: !GetAtt DeployRole.Arn

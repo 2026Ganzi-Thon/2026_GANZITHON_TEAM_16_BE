@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: Mowoo VPC, ALB/application security groups and private MySQL
+Description: Mowoo VPC, single-instance application security group and private MySQL
 Parameters:
   Project:
     Type: String
@@ -84,24 +84,14 @@ Resources:
   PrivateAssociationB:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Properties: {SubnetId: !Ref PrivateDbB, RouteTableId: !Ref PrivateRoutes}
-  LoadBalancerSecurityGroup:
+  ApplicationSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Public HTTP and HTTPS entry point
+      GroupDescription: Public nginx HTTP and HTTPS; no public SSH or Java port
       VpcId: !Ref Vpc
       SecurityGroupIngress:
         - {IpProtocol: tcp, FromPort: 80, ToPort: 80, CidrIp: 0.0.0.0/0}
         - {IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: 0.0.0.0/0}
-  ApplicationSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Only ALB can reach application nginx; no public SSH
-      VpcId: !Ref Vpc
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 80
-          ToPort: 80
-          SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
   DatabaseSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -136,7 +126,7 @@ Resources:
       VPCSecurityGroups: [!Ref DatabaseSecurityGroup]
       PubliclyAccessible: false
       MultiAZ: false
-      BackupRetentionPeriod: 7
+      BackupRetentionPeriod: 1
       DeletionProtection: true
       CopyTagsToSnapshot: true
       AutoMinorVersionUpgrade: true
@@ -144,7 +134,6 @@ Resources:
 Outputs:
   VpcId: {Value: !Ref Vpc}
   PublicSubnets: {Value: !Join [',', [!Ref PublicA, !Ref PublicB]]}
-  LoadBalancerSecurityGroupId: {Value: !Ref LoadBalancerSecurityGroup}
   ApplicationSecurityGroupId: {Value: !Ref ApplicationSecurityGroup}
   DatabaseEndpoint: {Value: !GetAtt Database.Endpoint.Address}
   DatabaseAdminSecretArn: {Value: !GetAtt Database.MasterUserSecret.SecretArn}
