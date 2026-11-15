@@ -68,8 +68,8 @@ Resources:
               conn = pymysql.connect(host='${DatabaseEndpoint}', user=admin['username'], password=admin['password'],
                   database='mowoo', ssl_ca='/opt/mowoo-bootstrap/rds-ca.pem', ssl_verify_cert=True, ssl_verify_identity=True)
               with conn.cursor() as cur:
-                  cur.execute("CREATE USER IF NOT EXISTS 'mowoo_app'@'%' IDENTIFIED BY %s REQUIRE SSL", (password,))
-                  cur.execute("ALTER USER 'mowoo_app'@'%' IDENTIFIED BY %s REQUIRE SSL", (password,))
+                  cur.execute("CREATE USER IF NOT EXISTS 'mowoo_app'@'%%' IDENTIFIED BY %s REQUIRE SSL", (password,))
+                  cur.execute("ALTER USER 'mowoo_app'@'%%' IDENTIFIED BY %s REQUIRE SSL", (password,))
                   cur.execute("GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, REFERENCES, DROP ON mowoo.* TO 'mowoo_app'@'%'")
               conn.close()
               # Verify the application credential independently before signaling success.
