@@ -1,0 +1,146 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Mowoo Java 21 Elastic Beanstalk environment (network is a separate stack)
+Parameters:
+  ApplicationName: {Type: String, Default: mowoo-backend}
+  EnvironmentName: {Type: String, Default: mowoo-prod}
+  PlatformArn: {Type: String}
+  VpcId: {Type: AWS::EC2::VPC::Id}
+  PublicSubnets: {Type: List<AWS::EC2::Subnet::Id>}
+  LoadBalancerSecurityGroupId: {Type: AWS::EC2::SecurityGroup::Id}
+  ApplicationSecurityGroupId: {Type: AWS::EC2::SecurityGroup::Id}
+  BundleBucket: {Type: String}
+  BundleKey: {Type: String}
+  VersionLabel: {Type: String}
+  DatabaseUrl: {Type: String}
+  DatabaseUsername: {Type: String, Default: mowoo_app}
+  DatabasePasswordSecretArn:
+    Type: String
+    Description: Secrets Manager ARN containing only the application database password
+  JwtSecretArn: {Type: String}
+  KakaoClientId: {Type: String}
+  KakaoSecretArn: {Type: String}
+  KakaoRedirectUri: {Type: String}
+  CorsAllowedOrigins: {Type: String, Default: 'http://localhost:3000'}
+  CertificateArn:
+    Type: String
+    Default: ''
+    Description: Optional ACM certificate in the same region; HTTPS required for real login
+  AppInstanceType: {Type: String, Default: t3.small}
+Conditions:
+  HasCertificate: !Not [!Equals [!Ref CertificateArn, '']]
+Resources:
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: ec2.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSElasticBeanstalkWebTier
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - PolicyName: ApplicationSecrets
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: [!Ref DatabasePasswordSecretArn, !Ref JwtSecretArn, !Ref KakaoSecretArn]
+        - PolicyName: ReadApplicationBundle
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub 'arn:aws:s3:::${BundleBucket}/releases/*'
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Sub 'arn:aws:s3:::${BundleBucket}'
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties: {Roles: [!Ref InstanceRole]}
+  ServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: elasticbeanstalk.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSElasticBeanstalkEnhancedHealth
+        - arn:aws:iam::aws:policy/AWSElasticBeanstalkManagedUpdatesCustomerRolePolicy
+  Application:
+    Type: AWS::ElasticBeanstalk::Application
+    Properties:
+      ApplicationName: !Ref ApplicationName
+  InitialVersion:
+    Type: AWS::ElasticBeanstalk::ApplicationVersion
+    Properties:
+      ApplicationName: !Ref Application
+      Description: !Ref VersionLabel
+      SourceBundle: {S3Bucket: !Ref BundleBucket, S3Key: !Ref BundleKey}
+  Environment:
+    Type: AWS::ElasticBeanstalk::Environment
+    Properties:
+      ApplicationName: !Ref Application
+      EnvironmentName: !Ref EnvironmentName
+      PlatformArn: !Ref PlatformArn
+      VersionLabel: !Ref InitialVersion
+      OptionSettings:
+        - {Namespace: 'aws:elasticbeanstalk:environment', OptionName: EnvironmentType, Value: LoadBalanced}
+        - {Namespace: 'aws:elasticbeanstalk:environment', OptionName: LoadBalancerType, Value: application}
+        - {Namespace: 'aws:elasticbeanstalk:environment', OptionName: ServiceRole, Value: !GetAtt ServiceRole.Arn}
+        - {Namespace: 'aws:ec2:vpc', OptionName: VPCId, Value: !Ref VpcId}
+        - {Namespace: 'aws:ec2:vpc', OptionName: Subnets, Value: !Join [',', !Ref PublicSubnets]}
+        - {Namespace: 'aws:ec2:vpc', OptionName: ELBSubnets, Value: !Join [',', !Ref PublicSubnets]}
+        - {Namespace: 'aws:ec2:vpc', OptionName: AssociatePublicIpAddress, Value: 'true'}
+        - {Namespace: 'aws:ec2:vpc', OptionName: ELBScheme, Value: public}
+        - {Namespace: 'aws:autoscaling:launchconfiguration', OptionName: IamInstanceProfile, Value: !Ref InstanceProfile}
+        - {Namespace: 'aws:autoscaling:launchconfiguration', OptionName: SecurityGroups, Value: !Ref ApplicationSecurityGroupId}
+        - {Namespace: 'aws:autoscaling:launchconfiguration', OptionName: DisableDefaultEC2SecurityGroup, Value: 'true'}
+        - {Namespace: 'aws:ec2:instances', OptionName: InstanceTypes, Value: !Ref AppInstanceType}
+        - {Namespace: 'aws:autoscaling:asg', OptionName: MinSize, Value: '1'}
+        - {Namespace: 'aws:autoscaling:asg', OptionName: MaxSize, Value: '1'}
+        - {Namespace: 'aws:elbv2:loadbalancer', OptionName: SecurityGroups, Value: !Ref LoadBalancerSecurityGroupId}
+        - {Namespace: 'aws:elbv2:loadbalancer', OptionName: ManagedSecurityGroup, Value: !Ref LoadBalancerSecurityGroupId}
+        - {Namespace: 'aws:elasticbeanstalk:environment:process:default', OptionName: Port, Value: '80'}
+        - {Namespace: 'aws:elasticbeanstalk:environment:process:default', OptionName: HealthCheckPath, Value: /health}
+        - {Namespace: 'aws:elasticbeanstalk:environment:process:default', OptionName: MatcherHTTPCode, Value: '200'}
+        - {Namespace: 'aws:elasticbeanstalk:healthreporting:system', OptionName: SystemType, Value: enhanced}
+        - {Namespace: 'aws:elasticbeanstalk:command', OptionName: DeploymentPolicy, Value: AllAtOnce}
+        - {Namespace: 'aws:elasticbeanstalk:cloudwatch:logs', OptionName: StreamLogs, Value: 'true'}
+        - {Namespace: 'aws:elasticbeanstalk:cloudwatch:logs', OptionName: RetentionInDays, Value: '7'}
+        - {Namespace: 'aws:elasticbeanstalk:cloudwatch:logs', OptionName: DeleteOnTerminate, Value: 'false'}
+        - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: PORT, Value: '5000'}
+        - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: DB_URL, Value: !Ref DatabaseUrl}
+        - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: DB_USERNAME, Value: !Ref DatabaseUsername}
+        - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: KAKAO_CLIENT_ID, Value: !Ref KakaoClientId}
+        - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: KAKAO_REDIRECT_URI, Value: !Ref KakaoRedirectUri}
+        - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: CORS_ALLOWED_ORIGINS, Value: !Ref CorsAllowedOrigins}
+        - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: AWS_S3_ENABLED, Value: 'false'}
+        - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: UPSTAGE_ENABLED, Value: 'false'}
+        - {Namespace: 'aws:elasticbeanstalk:application:environmentsecrets', OptionName: DB_PASSWORD, Value: !Ref DatabasePasswordSecretArn}
+        - {Namespace: 'aws:elasticbeanstalk:application:environmentsecrets', OptionName: JWT_SECRET, Value: !Ref JwtSecretArn}
+        - {Namespace: 'aws:elasticbeanstalk:application:environmentsecrets', OptionName: KAKAO_CLIENT_SECRET, Value: !Ref KakaoSecretArn}
+        - !If
+          - HasCertificate
+          - {Namespace: 'aws:elbv2:listener:443', OptionName: ListenerEnabled, Value: 'true'}
+          - !Ref AWS::NoValue
+        - !If
+          - HasCertificate
+          - {Namespace: 'aws:elbv2:listener:443', OptionName: Protocol, Value: HTTPS}
+          - !Ref AWS::NoValue
+        - !If
+          - HasCertificate
+          - {Namespace: 'aws:elbv2:listener:443', OptionName: SSLCertificateArns, Value: !Ref CertificateArn}
+          - !Ref AWS::NoValue
+      Tags: [{Key: Project, Value: mowoo}]
+Outputs:
+  EnvironmentName: {Value: !Ref Environment}
+  Endpoint: {Value: !GetAtt Environment.EndpointURL}
+  InstanceRoleArn: {Value: !GetAtt InstanceRole.Arn}

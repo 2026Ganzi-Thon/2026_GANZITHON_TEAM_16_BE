@@ -1,0 +1,87 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Release bucket and GitHub OIDC role limited to develop deployments
+Parameters:
+  Repository: {Type: String, Default: '2026Ganzi-Thon/2026_GANZITHON_TEAM_16_BE'}
+  ApplicationName: {Type: String, Default: mowoo-backend}
+  EnvironmentName: {Type: String, Default: mowoo-prod}
+  ExistingOidcProviderArn:
+    Type: String
+    Default: ''
+    Description: Reuse the GitHub OIDC provider if it already exists in this account
+Conditions:
+  CreateProvider: !Equals [!Ref ExistingOidcProviderArn, '']
+Resources:
+  ReleaseBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: {SSEAlgorithm: AES256}
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration: {Status: Enabled}
+  ReleaseBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ReleaseBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource: [!GetAtt ReleaseBucket.Arn, !Sub '${ReleaseBucket.Arn}/*']
+            Condition: {Bool: {'aws:SecureTransport': 'false'}}
+  GitHubProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: CreateProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList: [sts.amazonaws.com]
+  DeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !If [CreateProvider, !Ref GitHubProvider, !Ref ExistingOidcProviderArn]
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: !Sub 'repo:${Repository}:ref:refs/heads/develop'
+      Policies:
+        - PolicyName: DeployMowooOnly
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [s3:GetObject, s3:PutObject]
+                Resource: !Sub '${ReleaseBucket.Arn}/releases/*'
+              - Effect: Allow
+                Action: [s3:ListBucket, s3:GetBucketLocation]
+                Resource: !GetAtt ReleaseBucket.Arn
+              - Effect: Allow
+                Action: elasticbeanstalk:CreateApplicationVersion
+                Resource:
+                  - !Sub 'arn:aws:elasticbeanstalk:${AWS::Region}:${AWS::AccountId}:application/${ApplicationName}'
+                  - !Sub 'arn:aws:elasticbeanstalk:${AWS::Region}:${AWS::AccountId}:applicationversion/${ApplicationName}/*'
+              - Effect: Allow
+                Action: elasticbeanstalk:UpdateEnvironment
+                Resource:
+                  - !Sub 'arn:aws:elasticbeanstalk:${AWS::Region}:${AWS::AccountId}:environment/${ApplicationName}/${EnvironmentName}'
+                  - !Sub 'arn:aws:elasticbeanstalk:${AWS::Region}:${AWS::AccountId}:applicationversion/${ApplicationName}/*'
+              - Effect: Allow
+                Action: [elasticbeanstalk:DescribeEnvironments, elasticbeanstalk:DescribeEvents, elasticbeanstalk:DescribeApplicationVersions]
+                Resource: '*'
+Outputs:
+  ReleaseBucket: {Value: !Ref ReleaseBucket}
+  DeployRoleArn: {Value: !GetAtt DeployRole.Arn}
