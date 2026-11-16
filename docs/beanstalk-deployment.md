@@ -30,7 +30,7 @@ EC2 nginx:80 → Spring:5000 → RDS:3306 순서다. ALB는 생성하지 않는�
 
 서버는 `t3.small`, DB는 `db.t4g.micro`와 gp3 20 GiB부터 시작한다. EC2·RDS·스토리지·public IPv4·로그·Secrets Manager는 사용량에 따라 과금되며, 크레딧 적용과 잔액은 계정에서 확인한다. 현재 EC2/RDS 모두 1대이고 Multi-AZ 고가용성 구성은 아니다. 배포 정책은 AllAtOnce여서 짧은 중단이 있을 수 있다.
 
-이 브랜치는 최신 develop을 기준으로 한다. 아직 병합되지 않은 소셜 로그인 PR #18과 기록 관리 후속 PR #19는 포함하지 않는다. GitHub 자동 배포는 기본적으로 비활성화되어 있고 아래 설정을 완료한 뒤 켠다.
+이 브랜치에는 develop에 병합된 소셜 로그인 PR #18과 기록 관리 후속 PR #19를 반영했다. GitHub 자동 배포는 기본적으로 비활성화되어 있고 아래 설정을 완료한 뒤 켠다.
 
 ## 1. 계정 확인
 
@@ -83,6 +83,9 @@ aws cloudformation describe-stacks --stack-name mowoo-github --query "Stacks[0].
 | mowoo_app DB 비밀번호 | DatabasePasswordSecretArn |
 | 32바이트 이상 무작위 JWT 비밀키 | JwtSecretArn |
 | 카카오 클라이언트 시크릿 | KakaoSecretArn |
+| Upstage API 키 (선택) | UpstageApiKeySecretArn |
+| 구글 클라이언트 시크릿 (선택) | GoogleSecretArn |
+| 네이버 클라이언트 시크릿 (선택) | NaverSecretArn |
 
 실제 비밀은 Git, CloudFormation 파라미터, ZIP, Actions 로그에 넣지 않는다. 초기 AWS CLI 세션에서도 비밀 값을 화면에 출력하지 않는다. 로컬 개발 .env를 그대로 배포하지 않는다.
 
@@ -154,7 +157,35 @@ journalctl -u mowoo-certbot-renew.service
 
 DB 백업 보존은 현재 무료 플랜 제약에 맞춰 **1일**이다. 처음 7일 설정은 AWS에서 거절되었으며, 실제 데이터 보존 요구에 따라 계정 플랜과 백업 정책을 다시 검토한다.
 
-Beanstalk 기본 환경은 AI·S3 기능을 비활성화한다. 실제 기능을 켜려면 운영 Upstage 키/설정과 첨부 저장 권한을 별도로 연결한다. 아직 그 기능을 검증하지 않았다면 배포 완료와 AI·첨부 연동 완료를 구분해 보고한다.
+### AI와 소셜 로그인 활성화 파라미터
+
+| 기능 | CloudFormation 파라미터 | 연결되는 환경 변수 |
+| --- | --- | --- |
+| Upstage | UpstageApiKeySecretArn | UPSTAGE_API_KEY, UPSTAGE_ENABLED |
+| 구글 클라이언트 ID | GoogleClientId | GOOGLE_CLIENT_ID |
+| 구글 프론트 콜백 | GoogleRedirectUri | GOOGLE_REDIRECT_URI |
+| 구글 시크릿 ARN | GoogleSecretArn | GOOGLE_CLIENT_SECRET |
+| 네이버 클라이언트 ID | NaverClientId | NAVER_CLIENT_ID |
+| 네이버 프론트 콜백 | NaverRedirectUri | NAVER_REDIRECT_URI |
+| 네이버 시크릿 ARN | NaverSecretArn | NAVER_CLIENT_SECRET |
+
+선택 파라미터는 모두 빈 문자열이 기본값이다. `UpstageApiKeySecretArn`이 비어 있으면 `UPSTAGE_ENABLED=false`이고 API 키 환경 변수와 해당 비밀 읽기 권한은 생성하지 않는다. 준비된 비밀 ARN을 넣으면 `UPSTAGE_ENABLED=true`와 키 참조, 인스턴스 역할의 해당 ARN 읽기 권한을 함께 추가한다. 대화·일기·감정·회고가 공통 Upstage 설정을 사용한다.
+
+구글·네이버 웹 로그인은 각 제공자의 클라이언트 ID·redirect URI·시크릿 ARN을 함께 설정한다. ID와 URI는 일반 환경 변수, 실제 시크릿은 Secrets Manager 참조로 전달한다. 비밀 ARN이 빈 상태에서는 빈 ARN 읽기 권한이나 시크릿 환경 변수를 만들지 않는다. 제공자 콘솔에 등록한 콜백과 `GoogleRedirectUri`·`NaverRedirectUri`가 정확히 같아야 한다. 이 주소는 API 기본 주소와 별개인 프론트 로그인 콜백이다.
+
+```text
+UpstageApiKeySecretArn=arn:aws:secretsmanager:ap-southeast-2:<account-id>:secret:<upstage-secret>
+GoogleClientId=<google-web-client-id>
+GoogleRedirectUri=<registered-google-frontend-callback>
+GoogleSecretArn=arn:aws:secretsmanager:ap-southeast-2:<account-id>:secret:<google-client-secret>
+NaverClientId=<naver-client-id>
+NaverRedirectUri=<registered-naver-frontend-callback>
+NaverSecretArn=arn:aws:secretsmanager:ap-southeast-2:<account-id>:secret:<naver-client-secret>
+```
+
+위 ARN 자리에는 실제 비밀의 ARN을 넣고, 시크릿 값 자체를 파라미터에 넣지 않는다. 기존 환경을 업데이트할 때는 DB·JWT·카카오·HTTPS 설정과 현재 앱 버전도 보존한다. 비밀 ARN과 해당 제공자를 지원하는 앱 코드가 모두 배포된 뒤 실제 AI 호출·소셜 로그인을 확인한다. 설정 경로 추가만으로 아직 키가 없는 운영 기능이 활성화되는 것은 아니다.
+
+S3는 기본 비활성화 상태다. 첨부 저장 권한과 설정은 별도 연동이 필요하다.
 
 ## 6. 자동 배포 켜기
 

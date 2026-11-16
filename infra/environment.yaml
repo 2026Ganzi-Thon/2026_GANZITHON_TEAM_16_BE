@@ -19,6 +19,22 @@ Parameters:
   KakaoClientId: {Type: String}
   KakaoSecretArn: {Type: String}
   KakaoRedirectUri: {Type: String}
+  UpstageApiKeySecretArn:
+    Type: String
+    Default: ''
+    Description: Optional Secrets Manager ARN containing the Upstage API key
+  GoogleClientId: {Type: String, Default: ''}
+  GoogleRedirectUri: {Type: String, Default: ''}
+  GoogleSecretArn:
+    Type: String
+    Default: ''
+    Description: Optional Secrets Manager ARN containing the Google client secret
+  NaverClientId: {Type: String, Default: ''}
+  NaverRedirectUri: {Type: String, Default: ''}
+  NaverSecretArn:
+    Type: String
+    Default: ''
+    Description: Optional Secrets Manager ARN containing the Naver client secret
   CorsAllowedOrigins: {Type: String, Default: 'http://localhost:3000'}
   AppInstanceType: {Type: String, Default: t3.small}
   EnableIpHttps:
@@ -30,6 +46,10 @@ Parameters:
     Default: ''
     AllowedPattern: '^$|^[a-z0-9][a-z0-9.-]*[.][a-z0-9]+$'
     Description: Optional DNS name with an A record pointing at the environment EIP
+Conditions:
+  EnableAi: !Not [!Equals [!Ref UpstageApiKeySecretArn, '']]
+  HasGoogleSecret: !Not [!Equals [!Ref GoogleSecretArn, '']]
+  HasNaverSecret: !Not [!Equals [!Ref NaverSecretArn, '']]
 Resources:
   InstanceRole:
     Type: AWS::IAM::Role
@@ -50,7 +70,13 @@ Resources:
             Statement:
               - Effect: Allow
                 Action: secretsmanager:GetSecretValue
-                Resource: [!Ref DatabasePasswordSecretArn, !Ref JwtSecretArn, !Ref KakaoSecretArn]
+                Resource:
+                  - !Ref DatabasePasswordSecretArn
+                  - !Ref JwtSecretArn
+                  - !Ref KakaoSecretArn
+                  - !If [EnableAi, !Ref UpstageApiKeySecretArn, !Ref 'AWS::NoValue']
+                  - !If [HasGoogleSecret, !Ref GoogleSecretArn, !Ref 'AWS::NoValue']
+                  - !If [HasNaverSecret, !Ref NaverSecretArn, !Ref 'AWS::NoValue']
         - PolicyName: ReadApplicationBundle
           PolicyDocument:
             Version: '2012-10-17'
@@ -117,12 +143,28 @@ Resources:
         - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: DB_USERNAME, Value: !Ref DatabaseUsername}
         - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: KAKAO_CLIENT_ID, Value: !Ref KakaoClientId}
         - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: KAKAO_REDIRECT_URI, Value: !Ref KakaoRedirectUri}
+        - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: GOOGLE_CLIENT_ID, Value: !Ref GoogleClientId}
+        - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: GOOGLE_REDIRECT_URI, Value: !Ref GoogleRedirectUri}
+        - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: NAVER_CLIENT_ID, Value: !Ref NaverClientId}
+        - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: NAVER_REDIRECT_URI, Value: !Ref NaverRedirectUri}
         - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: CORS_ALLOWED_ORIGINS, Value: !Ref CorsAllowedOrigins}
         - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: AWS_S3_ENABLED, Value: 'false'}
-        - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: UPSTAGE_ENABLED, Value: 'false'}
+        - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: UPSTAGE_ENABLED, Value: !If [EnableAi, 'true', 'false']}
         - {Namespace: 'aws:elasticbeanstalk:application:environmentsecrets', OptionName: DB_PASSWORD, Value: !Ref DatabasePasswordSecretArn}
         - {Namespace: 'aws:elasticbeanstalk:application:environmentsecrets', OptionName: JWT_SECRET, Value: !Ref JwtSecretArn}
         - {Namespace: 'aws:elasticbeanstalk:application:environmentsecrets', OptionName: KAKAO_CLIENT_SECRET, Value: !Ref KakaoSecretArn}
+        - !If
+          - EnableAi
+          - {Namespace: 'aws:elasticbeanstalk:application:environmentsecrets', OptionName: UPSTAGE_API_KEY, Value: !Ref UpstageApiKeySecretArn}
+          - !Ref 'AWS::NoValue'
+        - !If
+          - HasGoogleSecret
+          - {Namespace: 'aws:elasticbeanstalk:application:environmentsecrets', OptionName: GOOGLE_CLIENT_SECRET, Value: !Ref GoogleSecretArn}
+          - !Ref 'AWS::NoValue'
+        - !If
+          - HasNaverSecret
+          - {Namespace: 'aws:elasticbeanstalk:application:environmentsecrets', OptionName: NAVER_CLIENT_SECRET, Value: !Ref NaverSecretArn}
+          - !Ref 'AWS::NoValue'
       Tags: [{Key: Project, Value: mowoo}]
 Outputs:
   EnvironmentName: {Value: !Ref Environment}
