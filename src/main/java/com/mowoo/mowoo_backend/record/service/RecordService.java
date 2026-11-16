@@ -10,6 +10,8 @@ import com.mowoo.mowoo_backend.login.exception.AuthErrorCode;
 import com.mowoo.mowoo_backend.user.entity.User;
 import com.mowoo.mowoo_backend.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,7 +19,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.TreeSet;
 import java.util.UUID;
+import java.sql.SQLException;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional
@@ -49,6 +53,7 @@ public class RecordService {
             users.delete(user);
             users.flush();
         } catch (DataIntegrityViolationException exception) {
+            logDeletionFailure(exception);
             throw new BusinessException(AuthErrorCode.ACCOUNT_DELETION_BLOCKED);
         }
     }
@@ -56,6 +61,25 @@ public class RecordService {
     private User requireUserForUpdate(UUID userId) {
         return users.findByIdForUpdate(userId)
                 .orElseThrow(() -> new BusinessException(CommonErrorCode.UNAUTHORIZED));
+    }
+
+    private void logDeletionFailure(DataIntegrityViolationException exception) {
+        String constraint = "unknown";
+        String sqlState = "unknown";
+        int vendorCode = 0;
+        for (Throwable cause = exception; cause != null; cause = cause.getCause()) {
+            if (cause instanceof ConstraintViolationException violation) {
+                String name = violation.getConstraintName();
+                if (name != null && name.matches("[A-Za-z0-9_.-]{1,128}")) constraint = name;
+            }
+            if (cause instanceof SQLException sqlException) {
+                String state = sqlException.getSQLState();
+                if (state != null && state.matches("[A-Z0-9]{5}")) sqlState = state;
+                vendorCode = sqlException.getErrorCode();
+            }
+        }
+        // SQL 원문·바인딩 값·토큰·일기 본문 대신 제약 이름과 DB 오류 식별자만 남긴다.
+        log.warn("회원 탈퇴 차단: constraint={}, sqlState={}, vendorCode={}", constraint, sqlState, vendorCode);
     }
 
     private void deleteUserRecords(UUID userId) {
