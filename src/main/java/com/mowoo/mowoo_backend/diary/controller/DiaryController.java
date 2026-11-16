@@ -36,7 +36,7 @@ public class DiaryController {
 
     private final DiaryService diaryService;
 
-    @Operation(summary = "직접 일기 작성", description = "직접 작성한 텍스트 일기를 저장합니다.")
+    @Operation(summary = "직접 일기 작성", description = "entryDate(YYYY-MM-DD), title, content로 본인의 일기를 저장합니다. 텍스트 JSON 요청을 받으며 성공 시 201입니다.")
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public DiaryResponse createDiary(@AuthenticationPrincipal Jwt jwt,
@@ -44,20 +44,20 @@ public class DiaryController {
         return diaryService.createDiary(userId(jwt), request);
     }
 
-    @Operation(summary = "일기 상세", description = "본인의 일기 또는 초안을 조회합니다.")
+    @Operation(summary = "일기 상세", description = "본인의 저장 일기 또는 저장 전 초안을 조회합니다. 다른 사용자 또는 없는 일기는 404입니다.")
     @GetMapping("/{diaryId}")
     public DiaryResponse getDiary(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID diaryId) {
         return diaryService.getDiary(userId(jwt), diaryId);
     }
 
-    @Operation(summary = "저장 일기 목록", description = "본인의 저장 일기를 날짜 최신순으로 조회합니다.")
+    @Operation(summary = "저장 일기 목록", description = "본인의 저장된 일기를 날짜 최신순으로 조회합니다. from·to는 YYYY-MM-DD, limit은 기본 20·최대 100이며 cursor로 다음 페이지를 요청합니다. 초안은 제외합니다.")
     @GetMapping
     public CursorResponse<DiaryItem> getDiaries(@AuthenticationPrincipal Jwt jwt,
                                                    @Valid @ParameterObject DiaryListRequest request) {
         return diaryService.getDiaries(userId(jwt), request);
     }
 
-    @Operation(summary = "일기 수정·초안 저장", description = "일기를 부분 수정하고 save가 true면 초안을 확정합니다.")
+    @Operation(summary = "일기 수정·초안 저장", description = "전달한 필드만 수정합니다. save가 true면 초안을 저장된 일기로 확정합니다. 저장 후 캘린더·통계에 포함됩니다.")
     @PatchMapping("/{diaryId}")
     public DiaryResponse updateDiary(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID diaryId,
                                      @Valid @RequestBody UpdateDiaryRequest request) {
