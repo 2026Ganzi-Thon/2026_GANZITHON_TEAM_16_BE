@@ -192,6 +192,7 @@ Resources:
         - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: NAVER_CLIENT_ID, Value: !Ref NaverClientId}
         - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: NAVER_REDIRECT_URI, Value: !Ref NaverRedirectUri}
         - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: CORS_ALLOWED_ORIGINS, Value: !Ref CorsAllowedOrigins}
+        - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: AWS_REGION, Value: !Ref 'AWS::Region'}
         - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: AWS_S3_ENABLED, Value: !Ref EnablePhotoStorage}
         - !If [HasPhotoStorage, {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: AWS_S3_BUCKET, Value: !Ref PhotoBucket}, !Ref 'AWS::NoValue']
         - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: AWS_S3_LOCATION, Value: uploads}
