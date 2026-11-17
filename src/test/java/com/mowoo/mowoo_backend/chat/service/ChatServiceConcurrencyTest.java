@@ -53,7 +53,7 @@ import static org.mockito.BDDMockito.given;
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
-@Import({ChatService.class, RecordService.class})
+@Import({ChatService.class, RecordService.class, com.mowoo.mowoo_backend.attachment.AttachmentTestConfiguration.class})
 class ChatServiceConcurrencyTest {
 
     @Autowired

@@ -29,7 +29,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DataJpaTest(showSql = false)
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Import({DiaryService.class, com.mowoo.mowoo_backend.diary.service.DiaryResponseMapper.class})
+@Import({DiaryService.class, com.mowoo.mowoo_backend.diary.service.DiaryResponseMapper.class, com.mowoo.mowoo_backend.attachment.AttachmentTestConfiguration.class})
 class DiaryRepositoryTest extends DiaryDatabaseTest {
 
     @Autowired private TestEntityManager em;

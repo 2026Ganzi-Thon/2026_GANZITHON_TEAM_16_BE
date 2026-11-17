@@ -1,6 +1,8 @@
 package com.mowoo.mowoo_backend.chat.service;
 
 import com.mowoo.mowoo_backend.character.entity.AiCharacter;
+import com.mowoo.mowoo_backend.attachment.service.AttachmentService;
+import org.springframework.web.multipart.MultipartFile;
 import com.mowoo.mowoo_backend.character.entity.UserCharacter;
 import com.mowoo.mowoo_backend.character.repository.UserCharacterRepository;
 import com.mowoo.mowoo_backend.chat.ai.ChatAiClient;
@@ -81,6 +83,7 @@ public class ChatService {
     private final DiarySuggestionAiClient diarySuggestionAiClient;
     private final DiaryComparisonAiClient diaryComparisonAiClient;
     private final EntityManager entityManager;
+    private final AttachmentService attachments;
 
     @Transactional
     public ChatSessionResponse startSession(UUID userId, StartChatSessionRequest request) {
@@ -150,8 +153,10 @@ public class ChatService {
 
         String nextCursor = hasNext ? ChatCursor.encodeMessage(page.getFirst().getSequenceNo()) : null;
         Map<UUID, List<ChatMessageResponse.DiaryReference>> referencesByMessage = findDiaryReferencesByMessage(page);
+        var photos = attachments.messages(userId, page.stream().map(ChatMessage::getId).toList());
         List<ChatMessageResponse> items = page.stream()
-                .map(message -> toMessageResponse(message, referencesByMessage.getOrDefault(message.getId(), List.of())))
+                .map(message -> toMessageResponse(message, referencesByMessage.getOrDefault(message.getId(), List.of()),
+                        photos.getOrDefault(message.getId(), List.of())))
                 .toList();
 
         return new ChatSessionDetailResponse(
@@ -182,11 +187,13 @@ public class ChatService {
     public void deleteSession(UUID userId, UUID sessionId) {
         ChatSession session = sessionRepository.findByIdAndUserIdForUpdate(sessionId, userId)
                 .orElseThrow(() -> new BusinessException(ChatErrorCode.SESSION_NOT_FOUND));
+        attachments.deleteSession(userId, sessionId);
         sessionRepository.delete(session);
     }
 
     @Transactional
     public void deleteAllSessions(UUID userId) {
+        attachments.deleteSessions(userId);
         sessionRepository.deleteAllForUser(userId);
     }
 
@@ -197,8 +204,16 @@ public class ChatService {
             UUID sessionId,
             SendMessageRequest request
     ) {
-        if (!request.hasContent()) {
+        return sendMessage(userId, sessionId, request, List.of());
+    }
+
+    @Transactional
+    public SendMessageResponse sendMessage(UUID userId, UUID sessionId, SendMessageRequest request, List<MultipartFile> files) {
+        if (!request.hasContent() && (files == null || files.isEmpty())) {
             throw new BusinessException(ChatErrorCode.MESSAGE_EMPTY);
+        }
+        if (request.content() != null && request.content().getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 65535) {
+            throw new BusinessException(CommonErrorCode.VALIDATION_ERROR);
         }
 
         ChatSession session = sessionRepository.findByIdAndUserIdForUpdate(sessionId, userId)
@@ -211,8 +226,9 @@ public class ChatService {
         int nextSequenceNo = messageRepository.findTopBySessionIdOrderBySequenceNoDesc(sessionId)
                 .map(latest -> latest.getSequenceNo() + 1)
                 .orElse(1);
-        ChatMessage userMessage = messageRepository.save(
+        ChatMessage userMessage = messageRepository.saveAndFlush(
                 ChatMessage.ofUser(session, nextSequenceNo, request.content()));
+        attachments.addToMessage(userMessage, files);
 
         String reply = generateReply(character, messageRepository.findBySessionIdOrderBySequenceNo(sessionId));
         ChatMessage assistantMessage = messageRepository.saveAndFlush(
@@ -284,7 +300,7 @@ public class ChatService {
                                 message.getSequenceNo(),
                                 message.getSenderRole(),
                                 message.getCharacter() == null ? null : message.getCharacter().getName(),
-                                message.getContent(),
+                                aiContent(message),
                                 message.getCreatedAt()))
                         .toList()
         );
@@ -425,7 +441,7 @@ public class ChatService {
 
     private List<ChatAiRequest.Message> toAiMessages(List<ChatMessage> messages) {
         return messages.stream()
-                .map(message -> new ChatAiRequest.Message(message.getSenderRole(), message.getContent()))
+                .map(message -> new ChatAiRequest.Message(message.getSenderRole(), aiContent(message)))
                 .toList();
     }
 
@@ -464,6 +480,12 @@ public class ChatService {
     }
 
     private ChatMessageResponse toMessageResponse(ChatMessage message, List<ChatMessageResponse.DiaryReference> references) {
+        var photos = attachments.messages(message.getSession().getUser().getId(), List.of(message.getId()));
+        return toMessageResponse(message, references, photos.getOrDefault(message.getId(), List.of()));
+    }
+
+    private ChatMessageResponse toMessageResponse(ChatMessage message, List<ChatMessageResponse.DiaryReference> references,
+                                                  List<AttachmentService.View> photos) {
         return new ChatMessageResponse(
                 message.getId(),
                 message.getSequenceNo(),
@@ -472,7 +494,8 @@ public class ChatService {
                 message.getContent(),
                 message.getCreatedAt(),
                 message.getEditedAt(),
-                references
+                references,
+                photos
         );
     }
 
@@ -486,6 +509,13 @@ public class ChatService {
                         reference -> reference.getId().messageId(),
                         Collectors.mapping(this::toDiaryReference, Collectors.toList())
                 ));
+    }
+
+    private String aiContent(ChatMessage message) {
+        // 사진 원본과 URL은 텍스트 AI에 전송하지 않는다.
+        return message.getContent() == null || message.getContent().isBlank()
+                ? "[사용자가 사진을 첨부했습니다. 사진 내용은 제공되지 않았으므로 내용을 추측하지 마세요.]"
+                : message.getContent();
     }
 
     private ChatMessageResponse.DiaryReference toDiaryReference(DiaryReference reference) {

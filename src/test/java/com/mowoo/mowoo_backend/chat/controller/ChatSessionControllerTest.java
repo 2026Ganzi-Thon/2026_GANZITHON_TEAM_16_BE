@@ -49,7 +49,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @WebMvcTest(controllers = ChatSessionController.class)
-@Import({SecurityConfig.class, JwtConfig.class, SecurityErrorHandler.class})
+@Import({SecurityConfig.class, JwtConfig.class, SecurityErrorHandler.class, com.mowoo.mowoo_backend.attachment.web.MultipartPayload.class})
 @TestPropertySource(properties = "jwt.secret=test-jwt-secret-key-for-mowoo-backend-0123456789")
 class ChatSessionControllerTest {
 

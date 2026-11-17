@@ -9,6 +9,9 @@ import lombok.Getter;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.util.Objects;
+import java.util.List;
+import java.util.UUID;
+import jakarta.validation.constraints.NotNull;
 
 // 생략은 기존 값 유지, 명시적인 null은 잘못된 요청으로 구분한다.
 @Getter
@@ -19,6 +22,13 @@ public class UpdateDiaryRequest {
     private String content;
     private LocalDate entryDate;
     private Boolean save;
+    @Size(max = 3)
+    private List<@NotNull UUID> removeAttachmentIds = List.of();
+
+    @JsonSetter("removeAttachmentIds")
+    public void setRemoveAttachmentIds(List<UUID> ids) {
+        this.removeAttachmentIds = Objects.requireNonNull(ids, "removeAttachmentIds는 null일 수 없습니다.");
+    }
 
     @JsonSetter("title")
     public void setTitle(String title) {

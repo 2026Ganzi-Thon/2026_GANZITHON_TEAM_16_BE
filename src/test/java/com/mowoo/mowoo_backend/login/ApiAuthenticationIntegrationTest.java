@@ -201,7 +201,8 @@ class ApiAuthenticationIntegrationTest {
                 });
             }
         });
-        return endpoints;
+        // JSON과 multipart가 같은 HTTP 메서드·경로를 공유하므로 문서에서는 한 operation이다.
+        return endpoints.stream().distinct().toList();
     }
 
     private record Endpoint(HttpMethod method, String path) {}

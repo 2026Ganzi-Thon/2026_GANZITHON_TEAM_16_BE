@@ -1,6 +1,7 @@
 package com.mowoo.mowoo_backend.chat.dto.response;
 
 import com.mowoo.mowoo_backend.chat.entity.SenderRole;
+import com.mowoo.mowoo_backend.attachment.service.AttachmentService;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -16,8 +17,13 @@ public record ChatMessageResponse(
         String content,
         Instant createdAt,
         Instant editedAt,
-        List<DiaryReference> diaryReferences
+        List<DiaryReference> diaryReferences,
+        List<AttachmentService.View> attachments
 ) {
+    public ChatMessageResponse(UUID id, int sequenceNo, SenderRole senderRole, UUID characterId, String content,
+                               Instant createdAt, Instant editedAt, List<DiaryReference> references) {
+        this(id, sequenceNo, senderRole, characterId, content, createdAt, editedAt, references, List.of());
+    }
 
     public record DiaryReference(
             UUID diaryId,
