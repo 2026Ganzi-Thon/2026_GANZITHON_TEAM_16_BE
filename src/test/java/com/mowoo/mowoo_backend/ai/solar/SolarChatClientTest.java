@@ -43,6 +43,7 @@ class SolarChatClientTest {
                 .andExpect(jsonPath("$.response_format.json_schema.strict").value(true))
                 .andExpect(jsonPath("$.messages[0].role").value("system"))
                 .andExpect(jsonPath("$.messages[1].role").value("user"))
+                .andExpect(jsonPath("$.temperature").doesNotExist())
                 .andRespond(withSuccess("""
                         {"choices":[{"message":{"content":"{\\"ok\\":true}","reasoning":"do not persist"},
                         "finish_reason":"stop"}],"usage":{"prompt_tokens":12,"completion_tokens":8,"total_tokens":20}}
@@ -51,6 +52,30 @@ class SolarChatClientTest {
         assertThat(result.content()).isEqualTo("{\"ok\":true}");
         assertThat(result.usage().promptTokens()).isEqualTo(12);
         assertThat(result.usage().completionTokens()).isEqualTo(8);
+        server.verify();
+    }
+
+    @Test
+    void sendsTemperatureOnlyWhenSet() {
+        server.expect(requestTo("https://api.upstage.ai/v1/chat/completions"))
+                .andExpect(jsonPath("$.temperature").value(0.3))
+                .andRespond(withSuccess("""
+                        {"choices":[{"message":{"content":"{\\"ok\\":true}"},"finish_reason":"stop"}]}
+                        """, MediaType.APPLICATION_JSON));
+        var p = prompt();
+        client.complete(new SolarChatClient.Prompt(p.schemaName(), p.instructions(), p.input(), p.schema(), 0.3));
+        server.verify();
+    }
+
+    @Test
+    void temperatureOutOfRangeMakesNoHttpRequest() {
+        var p = prompt();
+        for (double temperature : new double[]{-0.1, 2.1}) {
+            assertThatThrownBy(() -> client.complete(
+                    new SolarChatClient.Prompt(p.schemaName(), p.instructions(), p.input(), p.schema(), temperature)))
+                    .isInstanceOfSatisfying(SolarApiException.class,
+                            error -> assertThat(error.getKind()).isEqualTo(SolarApiException.Kind.CONFIGURATION));
+        }
         server.verify();
     }
 

@@ -47,6 +47,7 @@ class SolarDiarySuggestionAiClientTest {
         assertThat(input.path("diaries").get(1).path("content").asString()).hasSize(500);
         assertThat(json.writeValueAsString(prompt.getValue().schema())).contains("\"d1\"", "\"d3\"").doesNotContain("\"d4\"");
         assertThat(prompt.getValue().instructions()).contains("최대 3개", "개수를 채우려고 덜 관련된 일기를 넣지 않는다");
+        assertThat(prompt.getValue().temperature()).isEqualTo(0.2);
     }
 
     @Test

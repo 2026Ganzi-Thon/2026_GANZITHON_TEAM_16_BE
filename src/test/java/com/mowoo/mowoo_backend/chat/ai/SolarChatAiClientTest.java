@@ -46,6 +46,8 @@ class SolarChatAiClientTest {
                 .doesNotContain("다정한 모우", "KIND", "sessionId", "userId", "createdAt");
         assertThat(prompt.getValue().schema()).containsEntry("additionalProperties", false)
                 .containsEntry("required", List.of("reply"));
+        // 답변은 측정상 낮춰도 나아지지 않아 모델 기본값을 쓴다.
+        assertThat(prompt.getValue().temperature()).isNull();
     }
 
     @Test
