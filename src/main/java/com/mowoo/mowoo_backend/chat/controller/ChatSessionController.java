@@ -1,6 +1,11 @@
 package com.mowoo.mowoo_backend.chat.controller;
 
 import com.mowoo.mowoo_backend.chat.dto.request.CreateDiaryReferenceRequest;
+import com.mowoo.mowoo_backend.attachment.web.MultipartPayload;
+import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.RequestPart;
+import org.springframework.web.multipart.MultipartFile;
+import java.util.List;
 import com.mowoo.mowoo_backend.chat.dto.request.SendMessageRequest;
 import com.mowoo.mowoo_backend.chat.dto.request.StartChatSessionRequest;
 import com.mowoo.mowoo_backend.chat.dto.request.UpdateChatSessionRequest;
@@ -48,6 +53,7 @@ import java.util.UUID;
 public class ChatSessionController {
 
     private final ChatService chatService;
+    private final MultipartPayload payloads;
 
     @Operation(summary = "대화 시작", description = "보유한 캐릭터의 characterId로 대화를 생성합니다. 미보유 캐릭터는 403 CHARACTER_NOT_OWNED를 반환합니다. 성공 시 201입니다.")
     @PostMapping
@@ -101,7 +107,7 @@ public class ChatSessionController {
     }
 
     @Operation(summary = "메시지 전송", description = "진행 중인 본인 대화에 사용자 메시지와 AI 답변을 한 왕복으로 저장합니다. AI 생성 실패 시 사용자 메시지도 저장하지 않습니다. completedTurns와 canGenerateDiary를 반환하며 성공 시 201입니다.")
-    @PostMapping("/{sessionId}/messages")
+    @PostMapping(path = "/{sessionId}/messages", consumes = MediaType.APPLICATION_JSON_VALUE)
     @ResponseStatus(HttpStatus.CREATED)
     public SendMessageResponse sendMessage(
             @AuthenticationPrincipal Jwt jwt,
@@ -109,6 +115,15 @@ public class ChatSessionController {
             @RequestBody SendMessageRequest request
     ) {
         return chatService.sendMessage(userId(jwt), sessionId, request);
+    }
+
+    @Operation(summary = "사진과 함께 메시지 전송", description = "payload에 content·characterId JSON 문자열, files에 JPEG·PNG 사진을 반복해서 보냅니다. 사진만 보낼 수도 있으며 최대 3장·파일당 10MB입니다. 사진 내용은 AI에 전송하지 않습니다. AI 실패 시 업로드한 사진도 정리합니다.")
+    @PostMapping(path = "/{sessionId}/messages", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @ResponseStatus(HttpStatus.CREATED)
+    public SendMessageResponse sendMessageWithFiles(@AuthenticationPrincipal Jwt jwt, @PathVariable UUID sessionId,
+            @RequestPart("payload") String payload,
+            @RequestPart(value = "files", required = false) List<MultipartFile> files) {
+        return chatService.sendMessage(userId(jwt), sessionId, payloads.read(payload, SendMessageRequest.class), files);
     }
 
     @Operation(summary = "최근 메시지 수정", description = "진행 중인 대화의 가장 최근 사용자 메시지 내용과 수정 시각만 변경합니다. AI 답변은 다시 만들지 않습니다. 과거 일기 비교 답변과 일기 참조도 유지됩니다. 수정 내용은 다음 AI 대화의 기록에 반영됩니다. 이전 사용자 메시지·AI 메시지·종료된 대화는 수정할 수 없으며 409를 반환합니다.")

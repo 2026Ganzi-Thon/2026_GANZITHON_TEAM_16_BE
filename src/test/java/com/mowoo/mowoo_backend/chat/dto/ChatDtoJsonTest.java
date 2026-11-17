@@ -110,6 +110,7 @@ class ChatDtoJsonTest {
                     "content": "오늘 면접이 걱정돼요.",
                     "createdAt": "2026-11-07T12:00:00Z",
                     "editedAt": null,
+                    "attachments": [],
                     "diaryReferences": []
                   },
                   "assistantMessage": {
@@ -120,6 +121,7 @@ class ChatDtoJsonTest {
                     "content": "어떤 점이 가장 걱정되나요?",
                     "createdAt": "2026-11-07T12:00:00Z",
                     "editedAt": null,
+                    "attachments": [],
                     "diaryReferences": []
                   },
                   "completedTurns": 1,
@@ -159,7 +161,8 @@ class ChatDtoJsonTest {
                         "content": "오늘 면접이 걱정돼요.",
                         "createdAt": "2026-11-07T12:00:00Z",
                         "editedAt": null,
-                        "diaryReferences": []
+                        "attachments": [],
+                    "diaryReferences": []
                       }
                     ],
                     "nextCursor": null
@@ -189,6 +192,7 @@ class ChatDtoJsonTest {
                     "content": "두 기록에서 타인의 평가가 걱정된다는 공통점이 보여요.",
                     "createdAt": "2026-11-07T12:00:00Z",
                     "editedAt": null,
+                    "attachments": [],
                     "diaryReferences": [
                       {
                         "diaryId": "a3c8bfe1-0b2a-4891-88c5-d4af752c0033",

@@ -1,6 +1,7 @@
 package com.mowoo.mowoo_backend.record.service;
 
 import com.mowoo.mowoo_backend.chat.repository.ChatSessionRepository;
+import com.mowoo.mowoo_backend.attachment.service.AttachmentService;
 import com.mowoo.mowoo_backend.chat.service.ChatService;
 import com.mowoo.mowoo_backend.diary.exception.DiaryErrorCode;
 import com.mowoo.mowoo_backend.diary.repository.DiaryRepository;
@@ -30,6 +31,7 @@ public class RecordService {
     private final DiaryRepository diaries;
     private final ChatSessionRepository sessions;
     private final ChatService chatService;
+    private final AttachmentService attachments;
 
     public void deleteDiaries(UUID userId, List<UUID> diaryIds) {
         requireUserForUpdate(userId);
@@ -38,6 +40,7 @@ public class RecordService {
         if (owned.size() != ids.size()) {
             throw new BusinessException(DiaryErrorCode.DIARY_NOT_FOUND);
         }
+        attachments.deleteDiaries(userId, ids);
         diaries.deleteOwnedByIds(userId, ids);
     }
 
@@ -85,6 +88,7 @@ public class RecordService {
     private void deleteUserRecords(UUID userId) {
         // 사용자 → 세션 → 일기 순서로 잠가 진행 중인 대화·AI 초안 저장과 삭제를 직렬화한다.
         sessions.findAllForUserForUpdate(userId);
+        attachments.deleteAll(userId);
         diaries.deleteAllForUser(userId);
         chatService.deleteAllSessions(userId);
     }

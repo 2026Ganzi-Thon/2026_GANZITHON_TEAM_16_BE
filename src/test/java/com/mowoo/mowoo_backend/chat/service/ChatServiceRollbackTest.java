@@ -40,7 +40,7 @@ import static org.mockito.BDDMockito.given;
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Transactional(propagation = Propagation.NOT_SUPPORTED)
-@Import(ChatService.class)
+@Import({ChatService.class, com.mowoo.mowoo_backend.attachment.AttachmentTestConfiguration.class})
 class ChatServiceRollbackTest {
 
     @Autowired

@@ -1,6 +1,8 @@
 package com.mowoo.mowoo_backend.diary.service;
 
 import com.mowoo.mowoo_backend.diary.dto.request.CreateDiaryRequest;
+import com.mowoo.mowoo_backend.attachment.service.AttachmentService;
+import org.springframework.web.multipart.MultipartFile;
 import com.mowoo.mowoo_backend.diary.dto.request.DiaryListRequest;
 import com.mowoo.mowoo_backend.diary.dto.request.UpdateDiaryRequest;
 import com.mowoo.mowoo_backend.diary.dto.response.DiaryResponse;
@@ -32,14 +34,21 @@ public class DiaryService {
     private final UserRepository userRepository;
     private final DiaryEmotionRepository diaryEmotions;
     private final DiaryResponseMapper mapper;
+    private final AttachmentService attachments;
 
     @Transactional
     public DiaryResponse createDiary(UUID userId, CreateDiaryRequest request) {
+        return createDiary(userId, request, List.of());
+    }
+
+    @Transactional
+    public DiaryResponse createDiary(UUID userId, CreateDiaryRequest request, List<MultipartFile> files) {
         var user = userRepository.findByIdForUpdate(userId)
                 .orElseThrow(() -> new BusinessException(CommonErrorCode.UNAUTHORIZED));
         // MySQL DATETIME의 초 정밀도와 생성·조회 응답 시각을 일치시킨다.
         Diary diary = diaryRepository.saveAndFlush(new Diary(user, request.entryDate(), request.title(),
                 request.content(), Instant.now().truncatedTo(ChronoUnit.SECONDS)));
+        attachments.addToDiary(diary, files);
         return mapper.response(diary);
     }
 
@@ -71,8 +80,15 @@ public class DiaryService {
 
     @Transactional
     public DiaryResponse updateDiary(UUID userId, UUID diaryId, UpdateDiaryRequest request) {
+        return updateDiary(userId, diaryId, request, List.of());
+    }
+
+    @Transactional
+    public DiaryResponse updateDiary(UUID userId, UUID diaryId, UpdateDiaryRequest request, List<MultipartFile> files) {
         Diary diary = diaryRepository.findOwnedForUpdate(diaryId, userId)
                 .orElseThrow(() -> new BusinessException(DiaryErrorCode.DIARY_NOT_FOUND));
+        attachments.removeFromDiary(userId, diaryId, request.getRemoveAttachmentIds());
+        attachments.addToDiary(diary, files);
         if (request.getContent() != null && !request.getContent().equals(diary.getContent())) {
             diaryEmotions.deleteForDiary(diaryId);
         }

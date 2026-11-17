@@ -43,7 +43,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 // 로컬 MySQL에서 실행하고 테스트마다 롤백한다.
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
-@Import(ChatService.class)
+@Import({ChatService.class, com.mowoo.mowoo_backend.attachment.AttachmentTestConfiguration.class})
 class ChatServiceMessageTest {
 
     @Autowired

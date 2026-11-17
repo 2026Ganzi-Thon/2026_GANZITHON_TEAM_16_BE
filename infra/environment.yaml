@@ -37,6 +37,10 @@ Parameters:
     Description: Optional Secrets Manager ARN containing the Naver client secret
   CorsAllowedOrigins: {Type: String, Default: 'http://localhost:3000'}
   AppInstanceType: {Type: String, Default: t3.small}
+  EnablePhotoStorage:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
   EnableIpHttps:
     Type: String
     Default: 'true'
@@ -47,10 +51,40 @@ Parameters:
     AllowedPattern: '^$|^[a-z0-9][a-z0-9.-]*[.][a-z0-9]+$'
     Description: Optional DNS name with an A record pointing at the environment EIP
 Conditions:
+  HasPhotoStorage: !Equals [!Ref EnablePhotoStorage, 'true']
   EnableAi: !Not [!Equals [!Ref UpstageApiKeySecretArn, '']]
   HasGoogleSecret: !Not [!Equals [!Ref GoogleSecretArn, '']]
   HasNaverSecret: !Not [!Equals [!Ref NaverSecretArn, '']]
 Resources:
+  PhotoBucket:
+    Type: AWS::S3::Bucket
+    Condition: HasPhotoStorage
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules: [{ObjectOwnership: BucketOwnerEnforced}]
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: {SSEAlgorithm: AES256}
+  PhotoBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Condition: HasPhotoStorage
+    Properties:
+      Bucket: !Ref PhotoBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource: [!GetAtt PhotoBucket.Arn, !Sub '${PhotoBucket.Arn}/*']
+            Condition: {Bool: {'aws:SecureTransport': 'false'}}
   InstanceRole:
     Type: AWS::IAM::Role
     Properties:
@@ -64,6 +98,16 @@ Resources:
         - arn:aws:iam::aws:policy/AWSElasticBeanstalkWebTier
         - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
       Policies:
+        - !If
+          - HasPhotoStorage
+          - PolicyName: PhotoObjects
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Effect: Allow
+                  Action: [s3:PutObject, s3:GetObject, s3:DeleteObject]
+                  Resource: !Sub '${PhotoBucket.Arn}/uploads/*'
+          - !Ref 'AWS::NoValue'
         - PolicyName: ApplicationSecrets
           PolicyDocument:
             Version: '2012-10-17'
@@ -148,7 +192,10 @@ Resources:
         - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: NAVER_CLIENT_ID, Value: !Ref NaverClientId}
         - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: NAVER_REDIRECT_URI, Value: !Ref NaverRedirectUri}
         - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: CORS_ALLOWED_ORIGINS, Value: !Ref CorsAllowedOrigins}
-        - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: AWS_S3_ENABLED, Value: 'false'}
+        - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: AWS_REGION, Value: !Ref 'AWS::Region'}
+        - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: AWS_S3_ENABLED, Value: !Ref EnablePhotoStorage}
+        - !If [HasPhotoStorage, {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: AWS_S3_BUCKET, Value: !Ref PhotoBucket}, !Ref 'AWS::NoValue']
+        - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: AWS_S3_LOCATION, Value: uploads}
         - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: UPSTAGE_ENABLED, Value: !If [EnableAi, 'true', 'false']}
         - {Namespace: 'aws:elasticbeanstalk:application:environmentsecrets', OptionName: DB_PASSWORD, Value: !Ref DatabasePasswordSecretArn}
         - {Namespace: 'aws:elasticbeanstalk:application:environmentsecrets', OptionName: JWT_SECRET, Value: !Ref JwtSecretArn}
@@ -167,6 +214,9 @@ Resources:
           - !Ref 'AWS::NoValue'
       Tags: [{Key: Project, Value: mowoo}]
 Outputs:
+  PhotoBucketName:
+    Condition: HasPhotoStorage
+    Value: !Ref PhotoBucket
   EnvironmentName: {Value: !Ref Environment}
   Endpoint: {Value: !GetAtt Environment.EndpointURL}
   InstanceRoleArn: {Value: !GetAtt InstanceRole.Arn}
