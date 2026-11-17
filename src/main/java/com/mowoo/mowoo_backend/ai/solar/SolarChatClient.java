@@ -10,6 +10,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -27,7 +28,13 @@ public class SolarChatClient {
         this.json = json;
     }
 
-    public record Prompt(String schemaName, String instructions, String input, Map<String, Object> schema) { }
+    // temperature를 정하지 않으면(null) 요청에 넣지 않아 모델 기본값으로 동작한다. Upstage 허용 범위는 0~2다.
+    public record Prompt(String schemaName, String instructions, String input, Map<String, Object> schema,
+                         Double temperature) {
+        public Prompt(String schemaName, String instructions, String input, Map<String, Object> schema) {
+            this(schemaName, instructions, input, schema, null);
+        }
+    }
     public record Usage(long promptTokens, long completionTokens, long totalTokens) { }
     public record Result(String content, Usage usage) { }
 
@@ -36,22 +43,24 @@ public class SolarChatClient {
             throw new SolarApiException(SolarApiException.Kind.DISABLED);
         }
         if (prompt == null || prompt.instructions() == null || prompt.input() == null
-                || prompt.instructions().length() + prompt.input().length() > settings.getMaxInputChars()) {
+                || prompt.instructions().length() + prompt.input().length() > settings.getMaxInputChars()
+                || (prompt.temperature() != null && (prompt.temperature() < 0 || prompt.temperature() > 2))) {
             throw new SolarApiException(SolarApiException.Kind.CONFIGURATION);
         }
-        Map<String, Object> body = Map.of(
+        Map<String, Object> body = new LinkedHashMap<>(Map.of(
                 "model", settings.getModel(), "stream", false, "reasoning_effort", "none",
                 "max_tokens", settings.getMaxOutputTokens(),
                 "messages", List.of(Map.of("role", "system", "content", prompt.instructions()),
                         Map.of("role", "user", "content", prompt.input())),
                 "response_format", Map.of("type", "json_schema", "json_schema",
-                        Map.of("name", prompt.schemaName(), "strict", true, "schema", prompt.schema())));
+                        Map.of("name", prompt.schemaName(), "strict", true, "schema", prompt.schema()))));
+        if (prompt.temperature() != null) body.put("temperature", prompt.temperature());
         try {
             return http.post().uri("/chat/completions").contentType(MediaType.APPLICATION_JSON)
                     .headers(headers -> headers.setBearerAuth(settings.getApiKey())).body(body)
                     .exchange((request, response) -> {
                         byte[] bytes = response.getBody().readNBytes(MAX_RESPONSE_BYTES + 1);
-                        if (bytes.length > MAX_RESPONSE_BYTES) throw invalid();
+                        if (bytes.length > MAX_RESPONSE_BYTES) throw invalid("too_large");
                         int status = response.getStatusCode().value();
                         if (status != 200) throw classify(status, bytes);
                         return parse(bytes);
@@ -68,12 +77,13 @@ public class SolarChatClient {
         try {
             JsonNode root = json.readTree(bytes);
             JsonNode choices = root.path("choices");
-            if (!choices.isArray() || choices.isEmpty()) throw invalid();
+            if (!choices.isArray() || choices.isEmpty()) throw invalid("no_choices");
             JsonNode choice = choices.get(0);
-            if (!"stop".equals(choice.path("finish_reason").asString())) throw invalid();
+            String finishReason = choice.path("finish_reason").asString();
+            if (!"stop".equals(finishReason)) throw invalid("finish_reason=" + safeToken(finishReason));
             JsonNode content = choice.path("message").path("content");
-            if (!content.isString() || content.asString().isBlank()) throw invalid();
-            if (!json.readTree(content.asString()).isObject()) throw invalid();
+            if (!content.isString() || content.asString().isBlank()) throw invalid("empty_content");
+            if (!json.readTree(content.asString()).isObject()) throw invalid("content_not_object");
             JsonNode usage = root.path("usage");
             Usage counts = null;
             if (usage.path("prompt_tokens").isIntegralNumber()
@@ -87,7 +97,7 @@ public class SolarChatClient {
         } catch (SolarApiException e) {
             throw e;
         } catch (RuntimeException e) {
-            throw invalid();
+            throw invalid("unparsable");
         }
     }
 
@@ -103,7 +113,15 @@ public class SolarChatClient {
         return new SolarApiException(SolarApiException.Kind.CONFIGURATION);
     }
 
-    private SolarApiException invalid() {
+    // 응답 본문은 남기지 않고 어떤 검사에서 걸렸는지만 로그에 남긴다.
+    private SolarApiException invalid(String reason) {
+        log.warn("Solar response rejected model={} reason={}", settings.getModel(), reason);
         return new SolarApiException(SolarApiException.Kind.INVALID_RESPONSE);
+    }
+
+    // finish_reason은 짧은 영문 토큰이라 그 형태만 남긴다.
+    private static String safeToken(String value) {
+        String token = value == null ? "" : value.replaceAll("[^A-Za-z_]", "");
+        return token.isEmpty() ? "missing" : token.substring(0, Math.min(token.length(), 20));
     }
 }

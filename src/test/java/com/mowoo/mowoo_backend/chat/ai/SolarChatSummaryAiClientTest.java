@@ -11,11 +11,13 @@ import org.mockito.ArgumentCaptor;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.util.List;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -69,11 +71,38 @@ class SolarChatSummaryAiClientTest {
     }
 
     @Test
+    void 긴_대화는_최근_60개_메시지만_메시지마다_앞부분만_보낸다() {
+        when(solar.complete(any())).thenReturn(result("{\"title\":\"제목\",\"summary\":\"요약\"}"));
+        List<ChatAiRequest.Message> messages = IntStream.range(0, 70)
+                .mapToObj(i -> new ChatAiRequest.Message(i % 2 == 0 ? SenderRole.USER : SenderRole.ASSISTANT,
+                        i == 69 ? "가".repeat(1500) : "메시지 " + i))
+                .toList();
+
+        client.summarize(messages);
+
+        var prompt = ArgumentCaptor.forClass(SolarChatClient.Prompt.class);
+        verify(solar).complete(prompt.capture());
+        var sent = JsonMapper.builder().build().readTree(prompt.getValue().input()).path("messages");
+        assertThat(sent).hasSize(60);
+        assertThat(sent.get(0).path("content").asString()).isEqualTo("메시지 10");
+        assertThat(sent.get(59).path("content").asString()).hasSize(1000);
+    }
+
+    @Test
     void 제목은_150자까지_허용한다() {
         String title = "가".repeat(150);
         when(solar.complete(any())).thenReturn(result("{\"title\":\"" + title + "\",\"summary\":\"요약\"}"));
 
         assertThat(client.summarize(MESSAGES).title()).isEqualTo(title);
+    }
+
+    @Test
+    void 형식이_깨진_응답은_한_번만_다시_요청한다() {
+        when(solar.complete(any())).thenReturn(result("{\"title\":\"제목\"}"),
+                result("{\"title\":\"면접을 앞둔 날\",\"summary\":\"면접 때문에 떨렸어요.\"}"));
+
+        assertThat(client.summarize(MESSAGES)).isEqualTo(new ChatSummaryAiClient.Summary("면접을 앞둔 날", "면접 때문에 떨렸어요."));
+        verify(solar, times(2)).complete(any());
     }
 
     @Test
