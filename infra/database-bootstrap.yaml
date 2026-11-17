@@ -1,0 +1,90 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Temporary private-DB initialization host; delete this stack after success
+Parameters:
+  ImageId: {Type: AWS::EC2::Image::Id}
+  SubnetId: {Type: AWS::EC2::Subnet::Id}
+  ApplicationSecurityGroupId: {Type: AWS::EC2::SecurityGroup::Id}
+  DatabaseEndpoint: {Type: String}
+  DatabaseAdminSecretArn: {Type: String}
+  DatabasePasswordSecretArn: {Type: String}
+Resources:
+  BootstrapRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: ec2.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns: [arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore]
+      Policies:
+        - PolicyName: InitializeDatabase
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource: [!Ref DatabaseAdminSecretArn, !Ref DatabasePasswordSecretArn]
+              - Effect: Allow
+                Action: cloudformation:SignalResource
+                Resource: !Ref AWS::StackId
+  BootstrapProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties: {Roles: [!Ref BootstrapRole]}
+  BootstrapInstance:
+    Type: AWS::EC2::Instance
+    CreationPolicy:
+      ResourceSignal: {Timeout: PT15M}
+    Properties:
+      ImageId: !Ref ImageId
+      InstanceType: t3.micro
+      IamInstanceProfile: !Ref BootstrapProfile
+      SecurityGroupIds: [!Ref ApplicationSecurityGroupId]
+      SubnetId: !Ref SubnetId
+      MetadataOptions: {HttpTokens: required}
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs: {Encrypted: true, DeleteOnTermination: true, VolumeSize: 8, VolumeType: gp3}
+      Tags: [{Key: Name, Value: mowoo-temporary-db-bootstrap}]
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          set -euo pipefail
+          dnf install -y python3-pip
+          python3 -m venv /opt/mowoo-bootstrap
+          /opt/mowoo-bootstrap/bin/pip install boto3 PyMySQL cryptography
+          /opt/mowoo-bootstrap/bin/python - <<'PY'
+          import boto3, json, urllib.request
+          import pymysql
+          region = '${AWS::Region}'
+          cfn = boto3.client('cloudformation', region_name=region)
+          status = 'FAILURE'
+          try:
+              sm = boto3.client('secretsmanager', region_name=region)
+              admin = json.loads(sm.get_secret_value(SecretId='${DatabaseAdminSecretArn}')['SecretString'])
+              password = sm.get_secret_value(SecretId='${DatabasePasswordSecretArn}')['SecretString']
+              urllib.request.urlretrieve('https://truststore.pki.rds.amazonaws.com/global/global-bundle.pem', '/opt/mowoo-bootstrap/rds-ca.pem')
+              conn = pymysql.connect(host='${DatabaseEndpoint}', user=admin['username'], password=admin['password'],
+                  database='mowoo', ssl_ca='/opt/mowoo-bootstrap/rds-ca.pem', ssl_verify_cert=True, ssl_verify_identity=True)
+              with conn.cursor() as cur:
+                  cur.execute("CREATE USER IF NOT EXISTS 'mowoo_app'@'%%' IDENTIFIED BY %s REQUIRE SSL", (password,))
+                  cur.execute("ALTER USER 'mowoo_app'@'%%' IDENTIFIED BY %s REQUIRE SSL", (password,))
+                  cur.execute("GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, REFERENCES, DROP ON mowoo.* TO 'mowoo_app'@'%'")
+              conn.close()
+              # Verify the application credential independently before signaling success.
+              app = pymysql.connect(host='${DatabaseEndpoint}', user='mowoo_app', password=password,
+                  database='mowoo', ssl_ca='/opt/mowoo-bootstrap/rds-ca.pem', ssl_verify_cert=True, ssl_verify_identity=True)
+              with app.cursor() as cur:
+                  cur.execute('SELECT 1')
+                  assert cur.fetchone()[0] == 1
+              app.close()
+              status = 'SUCCESS'
+          except Exception as exc:
+              print('Database initialization failed:', type(exc).__name__)
+          finally:
+              cfn.signal_resource(StackName='${AWS::StackId}', LogicalResourceId='BootstrapInstance', UniqueId='database-init', Status=status)
+          if status != 'SUCCESS':
+              raise SystemExit(1)
+          print('Application database user initialized over verified TLS.')
+          PY

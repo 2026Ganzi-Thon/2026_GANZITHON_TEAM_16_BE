@@ -1,0 +1,18 @@
+server:
+  port: ${PORT:5000}
+  forward-headers-strategy: framework
+
+spring:
+  datasource:
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+  jpa:
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+
+auth:
+  cookie:
+    secure: true

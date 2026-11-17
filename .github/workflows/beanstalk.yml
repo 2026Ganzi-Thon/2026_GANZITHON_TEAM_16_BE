@@ -1,0 +1,121 @@
+name: Test and deploy Beanstalk
+
+on:
+  pull_request:
+    branches: [develop]
+  push:
+    branches: [develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: beanstalk-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci-local-password
+          MYSQL_DATABASE: mowoo_test
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -pci-local-password"
+          --health-interval=10s --health-timeout=5s --health-retries=12
+    env:
+      DB_URL: jdbc:mysql://127.0.0.1:3306/mowoo_test
+      DB_USERNAME: root
+      DB_PASSWORD: ci-local-password
+      JWT_SECRET: ci-only-jwt-secret-at-least-32-bytes-long
+      KAKAO_CLIENT_ID: ci-client
+      KAKAO_CLIENT_SECRET: ci-secret
+      KAKAO_REDIRECT_URI: http://localhost:3000/login/oauth2/code/kakao
+      AWS_REGION: ap-southeast-2
+      AWS_S3_ENABLED: 'false'
+      UPSTAGE_ENABLED: 'false'
+      JAVA_TOOL_OPTIONS: -Duser.timezone=Asia/Seoul
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Test and build
+        run: |
+          chmod +x gradlew
+          ./gradlew test bootJar --no-daemon
+      - name: Package executable JAR
+        run: python3 scripts/package-beanstalk.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: beanstalk-bundle
+          path: build/beanstalk.zip
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: build/reports/tests/test
+
+  deploy:
+    needs: test
+    if: >-
+      github.event_name != 'pull_request' && github.ref == 'refs/heads/develop'
+      && vars.EB_DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: ap-southeast-2
+      EB_APP: mowoo-backend
+      EB_ENV: mowoo-prod
+      RELEASE_BUCKET: ${{ vars.EB_RELEASE_BUCKET }}
+      HEALTHCHECK_URL: ${{ vars.EB_HEALTHCHECK_URL }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: beanstalk-bundle
+          path: bundle
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.EB_DEPLOY_ROLE_ARN }}
+          aws-region: ap-southeast-2
+      - name: Upload and deploy the tested artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$RELEASE_BUCKET"
+          version="${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          key="releases/${version}.zip"
+          previous=$(aws elasticbeanstalk describe-environments --environment-names "$EB_ENV" --query 'Environments[0].VersionLabel' --output text)
+          state=$(aws elasticbeanstalk describe-environments --environment-names "$EB_ENV" --query 'Environments[0].Status' --output text)
+          test "$state" = Ready
+          aws s3 cp bundle/beanstalk.zip "s3://${RELEASE_BUCKET}/${key}" --only-show-errors
+          aws elasticbeanstalk create-application-version --application-name "$EB_APP" --version-label "$version" --source-bundle "S3Bucket=${RELEASE_BUCKET},S3Key=${key}" > /dev/null
+          aws elasticbeanstalk update-environment --environment-name "$EB_ENV" --version-label "$version" > /dev/null
+          success=false
+          if aws elasticbeanstalk wait environment-updated --environment-names "$EB_ENV"; then
+            actual=$(aws elasticbeanstalk describe-environments --environment-names "$EB_ENV" --query 'Environments[0].VersionLabel' --output text)
+            health=$(aws elasticbeanstalk describe-environments --environment-names "$EB_ENV" --query 'Environments[0].Health' --output text)
+            host=$(aws elasticbeanstalk describe-environments --environment-names "$EB_ENV" --query 'Environments[0].CNAME' --output text)
+            if [[ "$actual" == "$version" && "$health" == Green ]] && curl --fail --silent --show-error --retry 8 --retry-all-errors --retry-delay 5 --max-time 15 "${HEALTHCHECK_URL:-http://${host}/health}"; then
+              success=true
+            fi
+          fi
+          if [[ "$success" != true ]]; then
+            echo 'Deployment failed. Attempting rollback to the previous application version.'
+            if [[ -n "$previous" && "$previous" != None ]]; then
+              aws elasticbeanstalk wait environment-updated --environment-names "$EB_ENV" || true
+              aws elasticbeanstalk update-environment --environment-name "$EB_ENV" --version-label "$previous" > /dev/null
+              aws elasticbeanstalk wait environment-updated --environment-names "$EB_ENV"
+            fi
+            exit 1
+          fi
