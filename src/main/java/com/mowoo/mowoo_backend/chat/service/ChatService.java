@@ -337,7 +337,7 @@ public class ChatService {
         String reply;
         try {
             reply = diaryComparisonAiClient.compare(new DiaryComparisonAiClient.Request(
-                    character.getName(), character.getDescription(), concern.getContent(),
+                    character.getCode(), character.getName(), character.getDescription(), concern.getContent(),
                     diary.getEntryDate(), diary.getTitle(), diary.getContent()));
         } catch (ChatAiException e) {
             throw new BusinessException(ChatErrorCode.AI_UNAVAILABLE);
@@ -401,7 +401,8 @@ public class ChatService {
     }
 
     private String generateReply(AiCharacter character, List<ChatMessage> history) {
-        ChatAiRequest request = new ChatAiRequest(character.getName(), character.getDescription(), toAiMessages(history));
+        ChatAiRequest request = new ChatAiRequest(
+                character.getCode(), character.getName(), character.getDescription(), toAiMessages(history));
         try {
             return chatAiClient.reply(request);
         } catch (ChatAiException e) {

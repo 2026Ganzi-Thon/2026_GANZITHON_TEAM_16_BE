@@ -45,7 +45,18 @@ class SolarDiarySuggestionAiClientTest {
         // 긴 본문은 앞부분만 보낸다.
         assertThat(input.path("diaries").get(1).path("content").asString()).hasSize(500);
         assertThat(json.writeValueAsString(prompt.getValue().schema())).contains("\"d1\"", "\"d3\"").doesNotContain("\"d4\"");
-        assertThat(prompt.getValue().instructions()).contains("최대 3개");
+        assertThat(prompt.getValue().instructions()).contains("최대 3개", "개수를 채우려고 덜 관련된 일기를 넣지 않는다");
+    }
+
+    @Test
+    void 긴_고민은_앞부분만_보낸다() {
+        when(solar.complete(any())).thenReturn(result("{\"diaryKeys\":[]}"));
+
+        client.select("고".repeat(1500), CANDIDATES, 3);
+
+        var prompt = ArgumentCaptor.forClass(SolarChatClient.Prompt.class);
+        verify(solar).complete(prompt.capture());
+        assertThat(json.readTree(prompt.getValue().input()).path("concern").asString()).hasSize(1000);
     }
 
     @Test

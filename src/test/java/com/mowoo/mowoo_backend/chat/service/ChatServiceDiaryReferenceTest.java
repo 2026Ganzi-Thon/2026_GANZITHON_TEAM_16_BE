@@ -184,7 +184,7 @@ class ChatServiceDiaryReferenceTest {
             assertThat(reference.acceptedAt()).isNotNull();
         });
         verify(diaryComparisonAiClient).compare(new DiaryComparisonAiClient.Request(
-                "다정한 모우", "따뜻하게 들어 주는 모우", "내일 발표가 너무 걱정돼요.",
+                character.getCode(), "다정한 모우", "따뜻하게 들어 주는 모우", "내일 발표가 너무 걱정돼요.",
                 LocalDate.of(2026, 9, 15), "발표를 앞둔 날", "발표 전날 잠이 오지 않았다."));
 
         em.flush();

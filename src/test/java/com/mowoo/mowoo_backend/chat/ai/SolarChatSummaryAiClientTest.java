@@ -11,6 +11,7 @@ import org.mockito.ArgumentCaptor;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.util.List;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -66,6 +67,24 @@ class SolarChatSummaryAiClientTest {
         when(solar.complete(any())).thenReturn(result(content));
 
         assertThatThrownBy(() -> client.summarize(MESSAGES)).isInstanceOf(ChatAiException.class);
+    }
+
+    @Test
+    void 긴_대화는_최근_60개_메시지만_메시지마다_앞부분만_보낸다() {
+        when(solar.complete(any())).thenReturn(result("{\"title\":\"제목\",\"summary\":\"요약\"}"));
+        List<ChatAiRequest.Message> messages = IntStream.range(0, 70)
+                .mapToObj(i -> new ChatAiRequest.Message(i % 2 == 0 ? SenderRole.USER : SenderRole.ASSISTANT,
+                        i == 69 ? "가".repeat(1500) : "메시지 " + i))
+                .toList();
+
+        client.summarize(messages);
+
+        var prompt = ArgumentCaptor.forClass(SolarChatClient.Prompt.class);
+        verify(solar).complete(prompt.capture());
+        var sent = JsonMapper.builder().build().readTree(prompt.getValue().input()).path("messages");
+        assertThat(sent).hasSize(60);
+        assertThat(sent.get(0).path("content").asString()).isEqualTo("메시지 10");
+        assertThat(sent.get(59).path("content").asString()).hasSize(1000);
     }
 
     @Test
