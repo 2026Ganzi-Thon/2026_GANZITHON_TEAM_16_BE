@@ -15,6 +15,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -71,6 +72,14 @@ class SolarDiarySuggestionAiClientTest {
         when(solar.complete(any())).thenReturn(result("{\"diaryKeys\":[]}"));
 
         assertThat(client.select("고민", CANDIDATES, 3)).isEmpty();
+    }
+
+    @Test
+    void 없는_키를_고르면_한_번만_다시_요청한다() {
+        when(solar.complete(any())).thenReturn(result("{\"diaryKeys\":[\"d9\"]}"), result("{\"diaryKeys\":[\"d2\"]}"));
+
+        assertThat(client.select("발표가 걱정돼요.", CANDIDATES, 3)).containsExactly(1);
+        verify(solar, times(2)).complete(any());
     }
 
     @ParameterizedTest

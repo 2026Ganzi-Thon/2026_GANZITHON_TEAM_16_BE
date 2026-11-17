@@ -17,6 +17,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -93,6 +94,15 @@ class SolarChatSummaryAiClientTest {
         when(solar.complete(any())).thenReturn(result("{\"title\":\"" + title + "\",\"summary\":\"요약\"}"));
 
         assertThat(client.summarize(MESSAGES).title()).isEqualTo(title);
+    }
+
+    @Test
+    void 형식이_깨진_응답은_한_번만_다시_요청한다() {
+        when(solar.complete(any())).thenReturn(result("{\"title\":\"제목\"}"),
+                result("{\"title\":\"면접을 앞둔 날\",\"summary\":\"면접 때문에 떨렸어요.\"}"));
+
+        assertThat(client.summarize(MESSAGES)).isEqualTo(new ChatSummaryAiClient.Summary("면접을 앞둔 날", "면접 때문에 떨렸어요."));
+        verify(solar, times(2)).complete(any());
     }
 
     @Test

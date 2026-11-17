@@ -16,6 +16,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -70,7 +71,58 @@ class SolarChatAiClientTest {
     void 지나치게_긴_답변은_실패로_본다() {
         when(solar.complete(any())).thenReturn(result("{\"reply\":\"" + "가".repeat(1001) + "\"}"));
 
-        assertThatThrownBy(() -> client.reply(REQUEST)).isInstanceOf(ChatAiException.class);
+        assertThatThrownBy(() -> client.reply(REQUEST)).isInstanceOf(ChatAiException.class)
+                .extracting(e -> ((ChatAiException) e).reason()).isEqualTo("INVALID_OUTPUT");
+    }
+
+    @Test
+    void 형식이_깨진_응답은_한_번만_다시_요청한다() {
+        when(solar.complete(any())).thenReturn(result("답변"), result("{\"reply\":\"그랬구나.\"}"));
+
+        assertThat(client.reply(REQUEST)).isEqualTo("그랬구나.");
+        verify(solar, times(2)).complete(any());
+    }
+
+    @Test
+    void Solar가_형식_오류를_알리면_한_번만_다시_요청한다() {
+        when(solar.complete(any()))
+                .thenThrow(new SolarApiException(SolarApiException.Kind.INVALID_RESPONSE))
+                .thenReturn(result("{\"reply\":\"그랬구나.\"}"));
+
+        assertThat(client.reply(REQUEST)).isEqualTo("그랬구나.");
+        verify(solar, times(2)).complete(any());
+    }
+
+    @Test
+    void 두_번_모두_형식이_깨지면_실패한다() {
+        when(solar.complete(any())).thenThrow(new SolarApiException(SolarApiException.Kind.INVALID_RESPONSE));
+
+        assertThatThrownBy(() -> client.reply(REQUEST)).isInstanceOf(ChatAiException.class)
+                .extracting(e -> ((ChatAiException) e).reason()).isEqualTo("INVALID_RESPONSE");
+        verify(solar, times(2)).complete(any());
+    }
+
+    @Test
+    void 길이_기준을_크게_넘으면_다시_만들고_다시_넘으면_그대로_받는다() {
+        String longReply = "가".repeat(301);
+        when(solar.complete(any())).thenReturn(result("{\"reply\":\"" + longReply + "\"}"),
+                result("{\"reply\":\"짧은 답이야.\"}"));
+        assertThat(client.reply(REQUEST)).isEqualTo("짧은 답이야.");
+
+        when(solar.complete(any())).thenReturn(result("{\"reply\":\"" + longReply + "\"}"));
+        assertThat(client.reply(REQUEST)).isEqualTo(longReply);
+        verify(solar, times(4)).complete(any());
+    }
+
+    @Test
+    void 위험_표현이_있는데_109_안내가_없으면_캐릭터_말투로_덧붙인다() {
+        when(solar.complete(any())).thenReturn(result("{\"reply\":\"많이 힘들구나.\"}"));
+        List<ChatAiRequest.Message> risky = List.of(new ChatAiRequest.Message(SenderRole.USER, "요즘 그냥 사라지고 싶어."));
+
+        assertThat(client.reply(new ChatAiRequest("KIND", "다정한 모우", null, risky)))
+                .isEqualTo("많이 힘들구나. " + ChatPrompts.CRISIS_LINE_CASUAL);
+        assertThat(client.reply(new ChatAiRequest("COOL", "냉철한 모우", null, risky)))
+                .isEqualTo("많이 힘들구나. " + ChatPrompts.CRISIS_LINE_POLITE);
     }
 
     @Test
@@ -97,12 +149,14 @@ class SolarChatAiClientTest {
     }
 
     @Test
-    void Solar_예외는_ChatAiException으로_바꾼다() {
+    void Solar_예외는_다시_요청하지_않고_ChatAiException으로_바꾼다() {
         when(solar.complete(any())).thenThrow(new SolarApiException(SolarApiException.Kind.RATE_LIMIT));
 
         assertThatThrownBy(() -> client.reply(REQUEST))
                 .isInstanceOf(ChatAiException.class)
-                .hasCauseInstanceOf(SolarApiException.class);
+                .hasCauseInstanceOf(SolarApiException.class)
+                .extracting(e -> ((ChatAiException) e).reason()).isEqualTo("RATE_LIMIT");
+        verify(solar, times(1)).complete(any());
     }
 
     @Test

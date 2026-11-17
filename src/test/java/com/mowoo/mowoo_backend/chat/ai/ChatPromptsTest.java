@@ -27,6 +27,31 @@ class ChatPromptsTest {
     }
 
     @Test
+    void 위험_표현이_있고_109_안내가_없을_때만_안내_문장을_덧붙인다() {
+        assertThat(ChatPrompts.withCrisisLine("힘들구나.", "요즘 죽고 싶다는 생각이 들어", "KIND"))
+                .isEqualTo("힘들구나. " + ChatPrompts.CRISIS_LINE_CASUAL);
+        assertThat(ChatPrompts.withCrisisLine("힘드시겠어요.", "내가 없어지면 다들 편하겠지", "COOL"))
+                .isEqualTo("힘드시겠어요. " + ChatPrompts.CRISIS_LINE_POLITE);
+        assertThat(ChatPrompts.withCrisisLine("힘드시겠어요.", "그냥 잠들었다가 안 깼으면", null))
+                .isEqualTo("힘드시겠어요. " + ChatPrompts.CRISIS_LINE_POLITE);
+        assertThat(ChatPrompts.withCrisisLine("109에 전화해 봐.", "죽고 싶어", "KIND")).isEqualTo("109에 전화해 봐.");
+        assertThat(ChatPrompts.withCrisisLine("고생했어.", null, "KIND")).isEqualTo("고생했어.");
+    }
+
+    @Test
+    void 흔한_과장_표현에는_안내_문장을_덧붙이지_않는다() {
+        assertThat(ChatPrompts.withCrisisLine("고생 많았다.", "과제 너무 많아서 죽겠어. 빨리 끝내고 싶다.", "KIND")).isEqualTo("고생 많았다.");
+        assertThat(ChatPrompts.withCrisisLine("배고프겠다.", "배고파 죽겠어", "KIND")).isEqualTo("배고프겠다.");
+    }
+
+    @Test
+    void 글자_수나_문장_수_기준을_넘었는지_본다() {
+        assertThat(ChatPrompts.exceeds("가".repeat(301), 300, 5)).isTrue();
+        assertThat(ChatPrompts.exceeds("하나. 둘. 셋. 넷. 다섯. 여섯.", 300, 5)).isTrue();
+        assertThat(ChatPrompts.exceeds("하나. 둘? 셋!", 300, 5)).isFalse();
+    }
+
+    @Test
     void 긴_내용은_앞부분만_남긴다() {
         assertThat(ChatPrompts.truncate("가나다", 2)).isEqualTo("가나");
         assertThat(ChatPrompts.truncate("가나", 2)).isEqualTo("가나");

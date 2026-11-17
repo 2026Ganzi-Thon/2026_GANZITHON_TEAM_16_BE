@@ -14,6 +14,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -65,6 +66,23 @@ class SolarDiaryComparisonAiClientTest {
         when(solar.complete(any())).thenReturn(result("{\"reply\":\"" + "가".repeat(1001) + "\"}"));
 
         assertThatThrownBy(() -> client.compare(REQUEST)).isInstanceOf(ChatAiException.class);
+    }
+
+    @Test
+    void 형식이_깨진_응답은_한_번만_다시_요청한다() {
+        when(solar.complete(any())).thenReturn(result("{}"), result("{\"reply\":\"그때도 끝까지 해냈네.\"}"));
+
+        assertThat(client.compare(REQUEST)).isEqualTo("그때도 끝까지 해냈네.");
+        verify(solar, times(2)).complete(any());
+    }
+
+    @Test
+    void 고민에_위험_표현이_있는데_109_안내가_없으면_덧붙인다() {
+        when(solar.complete(any())).thenReturn(result("{\"reply\":\"많이 지쳤구나.\"}"));
+
+        assertThat(client.compare(new DiaryComparisonAiClient.Request("CHEERFUL", "유쾌한 모우", null, "요즘 다 끝내고 싶어.",
+                LocalDate.of(2026, 9, 3), "번아웃", "아무것도 하기 싫었다.")))
+                .isEqualTo("많이 지쳤구나. " + ChatPrompts.CRISIS_LINE_CASUAL);
     }
 
     @ParameterizedTest
