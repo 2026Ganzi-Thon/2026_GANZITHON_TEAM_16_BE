@@ -18,4 +18,7 @@ public interface DiaryReferenceRepository extends JpaRepository<DiaryReference, 
             order by r.acceptedAt, r.diary.id
             """)
     List<DiaryReference> findWithDiaryByMessageIds(@Param("messageIds") Collection<UUID> messageIds);
+
+    // 이미 과거 일기를 연결한 대화에는 다시 권하지 않는다.
+    boolean existsByMessageSessionId(UUID sessionId);
 }

@@ -92,7 +92,7 @@ class ChatServiceDiaryReferenceTest {
     }
 
     @Test
-    void 후보는_최근_저장_일기_중_AI가_고른_순서대로_돌려준다() {
+    void 후보는_최근_저장_일기_중_AI가_고른_순서대로_권유_문장과_함께_돌려준다() {
         Diary presentation = savedDiary(user, LocalDate.of(2026, 9, 15), "발표를 앞둔 날", "발표 전날 잠이 오지 않았다.");
         Diary trip = savedDiary(user, LocalDate.of(2026, 10, 1), "여행", "바다를 보고 왔다.");
         em.persist(new Diary(user, LocalDate.of(2026, 10, 20), "저장 안 한 초안", "초안", null));
@@ -101,19 +101,71 @@ class ChatServiceDiaryReferenceTest {
         fromThisSession.update(null, null, null, true, Instant.now());
         em.persist(fromThisSession);
         em.flush();
-        given(diarySuggestionAiClient.select(any(), any(), anyInt())).willReturn(List.of(1));
+        given(diarySuggestionAiClient.select(any(), anyInt())).willReturn(
+                List.of(new DiarySuggestionAiClient.Suggestion(1, "예전에도 발표 전에 잠을 설쳤었지. 같이 볼까?")));
 
         ListResponse<DiarySuggestionResponse> response =
                 chatService.getDiarySuggestions(user.getId(), session.getId(), concern.getId());
 
         assertThat(response.code()).isEqualTo("DIARY_SUGGESTION_READ_SUCCESS");
-        assertThat(response.items()).containsExactly(
-                new DiarySuggestionResponse(presentation.getId(), presentation.getEntryDate(), presentation.getTitle()));
-        ArgumentCaptor<List<DiarySuggestionAiClient.Candidate>> candidates = ArgumentCaptor.captor();
-        verify(diarySuggestionAiClient).select(eq("내일 발표가 너무 걱정돼요."), candidates.capture(), eq(3));
+        assertThat(response.items()).containsExactly(new DiarySuggestionResponse(presentation.getId(),
+                presentation.getEntryDate(), presentation.getTitle(), "예전에도 발표 전에 잠을 설쳤었지. 같이 볼까?"));
+        ArgumentCaptor<DiarySuggestionAiClient.Request> request = ArgumentCaptor.captor();
+        verify(diarySuggestionAiClient).select(request.capture(), eq(3));
+        assertThat(request.getValue().characterName()).isEqualTo("다정한 모우");
+        assertThat(request.getValue().characterDescription()).isEqualTo("따뜻하게 들어 주는 모우");
+        assertThat(request.getValue().concern()).isEqualTo("내일 발표가 너무 걱정돼요.");
         // 최신순으로 넘기고, 초안·다른 사용자 일기·이 대화로 만든 일기는 뺀다.
-        assertThat(candidates.getValue()).extracting(DiarySuggestionAiClient.Candidate::title)
+        assertThat(request.getValue().candidates()).extracting(DiarySuggestionAiClient.Candidate::title)
                 .containsExactly(trip.getTitle(), presentation.getTitle());
+    }
+
+    @Test
+    void 권유_문장은_마지막_AI_응답의_캐릭터_말투로_만든다() {
+        AiCharacter cool = em.persist(new AiCharacter(uniqueCode(), "냉철한 모우", "차분하게 정리해 주는 모우", null, false));
+        ChatMessage next = em.persist(ChatMessage.ofUser(session, 3, "발표 순서도 아직 못 정했어요."));
+        em.persist(ChatMessage.ofAssistant(session, 4, cool, "정할 것부터 하나씩 볼까요?"));
+        savedDiary(user, LocalDate.of(2026, 9, 15), "발표를 앞둔 날", "본문");
+        given(diarySuggestionAiClient.select(any(), anyInt())).willReturn(List.of());
+
+        chatService.getDiarySuggestions(user.getId(), session.getId(), next.getId());
+
+        ArgumentCaptor<DiarySuggestionAiClient.Request> request = ArgumentCaptor.captor();
+        verify(diarySuggestionAiClient).select(request.capture(), eq(3));
+        assertThat(request.getValue().characterName()).isEqualTo("냉철한 모우");
+    }
+
+    @Test
+    void 이미_과거_일기를_연결한_대화에서는_AI를_부르지_않고_빈_목록을_돌려준다() {
+        Diary diary = savedDiary(user, LocalDate.of(2026, 9, 15), "발표를 앞둔 날", "본문");
+        savedDiary(user, LocalDate.of(2026, 9, 20), "또 다른 발표", "본문");
+        given(diaryComparisonAiClient.compare(any())).willReturn("비교 답변");
+        chatService.createDiaryReference(user.getId(), session.getId(),
+                new CreateDiaryReferenceRequest(concern.getId(), diary.getId()));
+
+        ListResponse<DiarySuggestionResponse> response =
+                chatService.getDiarySuggestions(user.getId(), session.getId(), concern.getId());
+
+        assertThat(response.code()).isEqualTo("DIARY_SUGGESTION_READ_SUCCESS");
+        assertThat(response.items()).isEmpty();
+        verifyNoInteractions(diarySuggestionAiClient);
+    }
+
+    @Test
+    void 다른_대화에서_연결한_일기는_이_대화의_권유를_막지_않는다() {
+        Diary diary = savedDiary(user, LocalDate.of(2026, 9, 15), "발표를 앞둔 날", "본문");
+        ChatSession other = em.persist(new ChatSession(user, character));
+        ChatMessage otherConcern = em.persist(ChatMessage.ofUser(other, 1, "발표가 또 걱정돼요."));
+        em.persist(ChatMessage.ofAssistant(other, 2, character, "어떤 점이 걱정돼요?"));
+        em.flush();
+        given(diaryComparisonAiClient.compare(any())).willReturn("비교 답변");
+        chatService.createDiaryReference(user.getId(), other.getId(),
+                new CreateDiaryReferenceRequest(otherConcern.getId(), diary.getId()));
+        given(diarySuggestionAiClient.select(any(), anyInt()))
+                .willReturn(List.of(new DiarySuggestionAiClient.Suggestion(0, "같이 볼까?")));
+
+        assertThat(chatService.getDiarySuggestions(user.getId(), session.getId(), concern.getId()).items())
+                .extracting(DiarySuggestionResponse::diaryId).containsExactly(diary.getId());
     }
 
     @Test
@@ -128,7 +180,7 @@ class ChatServiceDiaryReferenceTest {
     @Test
     void 후보_선택에_실패하면_빈_목록을_돌려준다() {
         savedDiary(user, LocalDate.of(2026, 9, 15), "발표를 앞둔 날", "본문");
-        given(diarySuggestionAiClient.select(any(), any(), anyInt())).willThrow(new ChatAiException("실패", null));
+        given(diarySuggestionAiClient.select(any(), anyInt())).willThrow(new ChatAiException("실패", null));
 
         assertThat(chatService.getDiarySuggestions(user.getId(), session.getId(), concern.getId()).items()).isEmpty();
     }

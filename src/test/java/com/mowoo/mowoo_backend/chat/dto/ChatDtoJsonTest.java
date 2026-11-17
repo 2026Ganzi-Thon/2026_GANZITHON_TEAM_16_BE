@@ -206,7 +206,8 @@ class ChatDtoJsonTest {
     void diarySuggestionsMatchSpecExample() {
         ListResponse<DiarySuggestionResponse> response = new ListResponse<>(
                 CommonSuccessCode.DIARY_SUGGESTION_READ_SUCCESS,
-                List.of(new DiarySuggestionResponse(DIARY_ID, LocalDate.parse("2026-09-15"), "발표를 앞둔 날")));
+                List.of(new DiarySuggestionResponse(DIARY_ID, LocalDate.parse("2026-09-15"), "발표를 앞둔 날",
+                        "예전에 발표를 준비할 때도 비슷한 걱정을 기록했었어. 그때의 마음을 함께 살펴볼까?")));
 
         assertJsonEquals(response, """
                 {
@@ -217,7 +218,8 @@ class ChatDtoJsonTest {
                     {
                       "diaryId": "a3c8bfe1-0b2a-4891-88c5-d4af752c0033",
                       "entryDate": "2026-09-15",
-                      "title": "발표를 앞둔 날"
+                      "title": "발표를 앞둔 날",
+                      "invitation": "예전에 발표를 준비할 때도 비슷한 걱정을 기록했었어. 그때의 마음을 함께 살펴볼까?"
                     }
                   ]
                 }

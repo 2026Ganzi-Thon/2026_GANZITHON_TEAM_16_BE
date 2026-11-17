@@ -290,22 +290,26 @@ public class ChatService {
         );
     }
 
-    // 최근 저장 일기 중에서 AI가 현재 고민과 관련된 일기를 고른다.
+    // 최근 저장 일기 중에서 AI가 현재 고민과 관련된 일기를 고르고, 지금 대화 중인 캐릭터의 권유 문장을 함께 돌려준다.
+    // 이미 과거 일기를 연결한 대화에는 다시 권하지 않는다.
     // 명세에 AI 실패 응답이 없으므로 고르지 못하면 빈 목록을 돌려준다.
     public ListResponse<DiarySuggestionResponse> getDiarySuggestions(UUID userId, UUID sessionId, UUID messageId) {
         requirePastDiariesEnabled(userId);
         ChatSession session = sessionRepository.findByIdAndUserId(sessionId, userId)
                 .orElseThrow(() -> new BusinessException(ChatErrorCode.MESSAGE_NOT_FOUND));
         ChatMessage concern = findUserMessage(session, messageId);
+        if (diaryReferenceRepository.existsByMessageSessionId(sessionId)) {
+            return new ListResponse<>(CommonSuccessCode.DIARY_SUGGESTION_READ_SUCCESS, List.of());
+        }
 
         // 이 대화로 만든 일기는 지금 고민과 같은 내용이라 후보에서 뺀다.
         List<Diary> candidates = diaryRepository.findSaved(userId, null, null, Limit.of(SUGGESTION_CANDIDATE_LIMIT))
                 .stream()
                 .filter(diary -> diary.getSourceSession() == null || !diary.getSourceSession().getId().equals(sessionId))
                 .toList();
-        List<DiarySuggestionResponse> items = selectRelatedDiaries(sessionId, concern.getContent(), candidates).stream()
-                .map(diary -> new DiarySuggestionResponse(diary.getId(), diary.getEntryDate(), diary.getTitle()))
-                .toList();
+        ChatMessage latest = messageRepository.findTopBySessionIdOrderBySequenceNoDesc(sessionId).orElseThrow();
+        List<DiarySuggestionResponse> items = suggestRelatedDiaries(
+                sessionId, currentCharacter(session, latest), concern.getContent(), candidates);
         return new ListResponse<>(CommonSuccessCode.DIARY_SUGGESTION_READ_SUCCESS, items);
     }
 
@@ -331,9 +335,8 @@ public class ChatService {
             throw new BusinessException(DiaryErrorCode.DIARY_NOT_FOUND);
         }
 
-        // 지금 대화 중인 캐릭터(마지막 AI 응답의 캐릭터)로 답한다.
         ChatMessage latest = messageRepository.findTopBySessionIdOrderBySequenceNoDesc(sessionId).orElseThrow();
-        AiCharacter character = latest.getCharacter() != null ? latest.getCharacter() : session.getCharacter();
+        AiCharacter character = currentCharacter(session, latest);
         String reply;
         try {
             reply = diaryComparisonAiClient.compare(new DiaryComparisonAiClient.Request(
@@ -367,16 +370,27 @@ public class ChatService {
                 .orElseThrow(() -> new BusinessException(ChatErrorCode.MESSAGE_NOT_FOUND));
     }
 
-    private List<Diary> selectRelatedDiaries(UUID sessionId, String concern, List<Diary> candidates) {
+    // 지금 대화 중인 캐릭터는 마지막 AI 응답의 캐릭터다.
+    private AiCharacter currentCharacter(ChatSession session, ChatMessage latest) {
+        return latest.getCharacter() != null ? latest.getCharacter() : session.getCharacter();
+    }
+
+    private List<DiarySuggestionResponse> suggestRelatedDiaries(
+            UUID sessionId, AiCharacter character, String concern, List<Diary> candidates) {
         if (candidates.isEmpty()) {
             return List.of();
         }
         try {
-            return diarySuggestionAiClient.select(concern, candidates.stream()
-                            .map(diary -> new DiarySuggestionAiClient.Candidate(
-                                    diary.getEntryDate(), diary.getTitle(), diary.getContent()))
-                            .toList(), SUGGESTION_LIMIT).stream()
-                    .map(candidates::get)
+            return diarySuggestionAiClient.select(new DiarySuggestionAiClient.Request(
+                            character.getName(), character.getDescription(), concern, candidates.stream()
+                                    .map(diary -> new DiarySuggestionAiClient.Candidate(
+                                            diary.getEntryDate(), diary.getTitle(), diary.getContent()))
+                                    .toList()), SUGGESTION_LIMIT).stream()
+                    .map(suggestion -> {
+                        Diary diary = candidates.get(suggestion.index());
+                        return new DiarySuggestionResponse(
+                                diary.getId(), diary.getEntryDate(), diary.getTitle(), suggestion.invitation());
+                    })
                     .toList();
         } catch (ChatAiException e) {
             log.warn("과거 일기 후보를 고르지 못해 빈 목록을 돌려줍니다. sessionId={}", sessionId);
