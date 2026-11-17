@@ -14,6 +14,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -24,7 +25,7 @@ class SolarDiaryComparisonAiClientTest {
     private final SolarDiaryComparisonAiClient client = new SolarDiaryComparisonAiClient(solar, json);
 
     private static final DiaryComparisonAiClient.Request REQUEST = new DiaryComparisonAiClient.Request(
-            "다정한 모우", "따뜻하게 들어 주는 모우", "내일 발표가 걱정돼요.",
+            "KIND", "다정한 모우", "따뜻하게 들어 주는 모우", "내일 발표가 걱정돼요.",
             LocalDate.of(2026, 9, 15), "발표를 앞둔 날", "발표 전날 잠이 오지 않았다.");
 
     @Test
@@ -35,7 +36,8 @@ class SolarDiaryComparisonAiClientTest {
 
         var prompt = ArgumentCaptor.forClass(SolarChatClient.Prompt.class);
         verify(solar).complete(prompt.capture());
-        assertThat(prompt.getValue().instructions()).contains("다정한 모우", "따뜻하게 들어 주는 모우");
+        assertThat(prompt.getValue().instructions())
+                .contains("다정한 모우", "따뜻하게 들어 주는 모우", "말투: 반말", "109(자살예방상담전화)");
         var input = json.readTree(prompt.getValue().input());
         assertThat(input.path("concern").asString()).isEqualTo("내일 발표가 걱정돼요.");
         assertThat(input.path("pastDiary").path("entryDate").asString()).isEqualTo("2026-09-15");
@@ -46,15 +48,41 @@ class SolarDiaryComparisonAiClientTest {
     }
 
     @Test
-    void 긴_일기는_앞부분만_보낸다() {
+    void 긴_일기와_고민은_앞부분만_보낸다() {
         when(solar.complete(any())).thenReturn(result("{\"reply\":\"답변\"}"));
 
-        client.compare(new DiaryComparisonAiClient.Request("모우", null, "고민",
+        client.compare(new DiaryComparisonAiClient.Request(null, "모우", null, "고".repeat(1500),
                 LocalDate.of(2026, 9, 15), "제목", "가".repeat(6000)));
 
         var prompt = ArgumentCaptor.forClass(SolarChatClient.Prompt.class);
         verify(solar).complete(prompt.capture());
-        assertThat(json.readTree(prompt.getValue().input()).path("pastDiary").path("content").asString()).hasSize(5000);
+        var input = json.readTree(prompt.getValue().input());
+        assertThat(input.path("pastDiary").path("content").asString()).hasSize(5000);
+        assertThat(input.path("concern").asString()).hasSize(1000);
+    }
+
+    @Test
+    void 지나치게_긴_답변은_실패로_본다() {
+        when(solar.complete(any())).thenReturn(result("{\"reply\":\"" + "가".repeat(1001) + "\"}"));
+
+        assertThatThrownBy(() -> client.compare(REQUEST)).isInstanceOf(ChatAiException.class);
+    }
+
+    @Test
+    void 형식이_깨진_응답은_한_번만_다시_요청한다() {
+        when(solar.complete(any())).thenReturn(result("{}"), result("{\"reply\":\"그때도 끝까지 해냈네.\"}"));
+
+        assertThat(client.compare(REQUEST)).isEqualTo("그때도 끝까지 해냈네.");
+        verify(solar, times(2)).complete(any());
+    }
+
+    @Test
+    void 고민에_위험_표현이_있는데_109_안내가_없으면_덧붙인다() {
+        when(solar.complete(any())).thenReturn(result("{\"reply\":\"많이 지쳤구나.\"}"));
+
+        assertThat(client.compare(new DiaryComparisonAiClient.Request("CHEERFUL", "유쾌한 모우", null, "요즘 다 끝내고 싶어.",
+                LocalDate.of(2026, 9, 3), "번아웃", "아무것도 하기 싫었다.")))
+                .isEqualTo("많이 지쳤구나. " + ChatPrompts.CRISIS_LINE_CASUAL);
     }
 
     @ParameterizedTest
@@ -83,9 +111,9 @@ class SolarDiaryComparisonAiClientTest {
 
     @Test
     void 고민이나_일기_내용이_없으면_AI를_부르지_않는다() {
-        assertThatThrownBy(() -> client.compare(new DiaryComparisonAiClient.Request("모우", null, " ",
+        assertThatThrownBy(() -> client.compare(new DiaryComparisonAiClient.Request(null, "모우", null, " ",
                 LocalDate.of(2026, 9, 15), "제목", "본문"))).isInstanceOf(ChatAiException.class);
-        assertThatThrownBy(() -> client.compare(new DiaryComparisonAiClient.Request("모우", null, "고민",
+        assertThatThrownBy(() -> client.compare(new DiaryComparisonAiClient.Request(null, "모우", null, "고민",
                 LocalDate.of(2026, 9, 15), "제목", ""))).isInstanceOf(ChatAiException.class);
         verifyNoInteractions(solar);
     }

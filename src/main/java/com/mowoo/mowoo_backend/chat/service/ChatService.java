@@ -230,7 +230,7 @@ public class ChatService {
                 ChatMessage.ofUser(session, nextSequenceNo, request.content()));
         attachments.addToMessage(userMessage, files);
 
-        String reply = generateReply(character, messageRepository.findBySessionIdOrderBySequenceNo(sessionId));
+        String reply = generateReply(sessionId, character, messageRepository.findBySessionIdOrderBySequenceNo(sessionId));
         ChatMessage assistantMessage = messageRepository.saveAndFlush(
                 ChatMessage.ofAssistant(session, nextSequenceNo + 1, character, reply));
         // DATETIME은 초 단위로 저장되므로 다시 읽어서 이후 조회와 같은 createdAt을 응답한다.
@@ -353,9 +353,10 @@ public class ChatService {
         String reply;
         try {
             reply = diaryComparisonAiClient.compare(new DiaryComparisonAiClient.Request(
-                    character.getName(), character.getDescription(), concern.getContent(),
+                    character.getCode(), character.getName(), character.getDescription(), concern.getContent(),
                     diary.getEntryDate(), diary.getTitle(), diary.getContent()));
         } catch (ChatAiException e) {
+            log.warn("과거 일기 비교 답변을 만들지 못했습니다. sessionId={}, reason={}", sessionId, e.reason());
             throw new BusinessException(ChatErrorCode.AI_UNAVAILABLE);
         }
 
@@ -395,7 +396,7 @@ public class ChatService {
                     .map(candidates::get)
                     .toList();
         } catch (ChatAiException e) {
-            log.warn("과거 일기 후보를 고르지 못해 빈 목록을 돌려줍니다. sessionId={}", sessionId);
+            log.warn("과거 일기 후보를 고르지 못해 빈 목록을 돌려줍니다. sessionId={}, reason={}", sessionId, e.reason());
             return List.of();
         }
     }
@@ -416,11 +417,13 @@ public class ChatService {
         return entityManager.find(AiCharacter.class, characterId);
     }
 
-    private String generateReply(AiCharacter character, List<ChatMessage> history) {
-        ChatAiRequest request = new ChatAiRequest(character.getName(), character.getDescription(), toAiMessages(history));
+    private String generateReply(UUID sessionId, AiCharacter character, List<ChatMessage> history) {
+        ChatAiRequest request = new ChatAiRequest(
+                character.getCode(), character.getName(), character.getDescription(), toAiMessages(history));
         try {
             return chatAiClient.reply(request);
         } catch (ChatAiException e) {
+            log.warn("대화 답변을 만들지 못했습니다. sessionId={}, reason={}", sessionId, e.reason());
             throw new BusinessException(ChatErrorCode.AI_UNAVAILABLE);
         }
     }
@@ -434,7 +437,7 @@ public class ChatService {
         try {
             return chatSummaryAiClient.summarize(toAiMessages(messages));
         } catch (ChatAiException e) {
-            log.warn("대화 요약을 만들지 못해 제목과 요약 없이 종료합니다. sessionId={}", sessionId);
+            log.warn("대화 요약을 만들지 못해 제목과 요약 없이 종료합니다. sessionId={}, reason={}", sessionId, e.reason());
             return NO_SUMMARY;
         }
     }

@@ -15,6 +15,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -45,7 +46,19 @@ class SolarDiarySuggestionAiClientTest {
         // 긴 본문은 앞부분만 보낸다.
         assertThat(input.path("diaries").get(1).path("content").asString()).hasSize(500);
         assertThat(json.writeValueAsString(prompt.getValue().schema())).contains("\"d1\"", "\"d3\"").doesNotContain("\"d4\"");
-        assertThat(prompt.getValue().instructions()).contains("최대 3개");
+        assertThat(prompt.getValue().instructions()).contains("최대 3개", "개수를 채우려고 덜 관련된 일기를 넣지 않는다");
+        assertThat(prompt.getValue().temperature()).isEqualTo(0.2);
+    }
+
+    @Test
+    void 긴_고민은_앞부분만_보낸다() {
+        when(solar.complete(any())).thenReturn(result("{\"diaryKeys\":[]}"));
+
+        client.select("고".repeat(1500), CANDIDATES, 3);
+
+        var prompt = ArgumentCaptor.forClass(SolarChatClient.Prompt.class);
+        verify(solar).complete(prompt.capture());
+        assertThat(json.readTree(prompt.getValue().input()).path("concern").asString()).hasSize(1000);
     }
 
     @Test
@@ -60,6 +73,14 @@ class SolarDiarySuggestionAiClientTest {
         when(solar.complete(any())).thenReturn(result("{\"diaryKeys\":[]}"));
 
         assertThat(client.select("고민", CANDIDATES, 3)).isEmpty();
+    }
+
+    @Test
+    void 없는_키를_고르면_한_번만_다시_요청한다() {
+        when(solar.complete(any())).thenReturn(result("{\"diaryKeys\":[\"d9\"]}"), result("{\"diaryKeys\":[\"d2\"]}"));
+
+        assertThat(client.select("발표가 걱정돼요.", CANDIDATES, 3)).containsExactly(1);
+        verify(solar, times(2)).complete(any());
     }
 
     @ParameterizedTest

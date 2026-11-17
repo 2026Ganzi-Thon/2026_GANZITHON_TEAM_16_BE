@@ -9,6 +9,7 @@ public interface DiaryComparisonAiClient {
     String compare(Request request);
 
     record Request(
+            String characterCode,
             String characterName,
             String characterDescription,
             String concern,

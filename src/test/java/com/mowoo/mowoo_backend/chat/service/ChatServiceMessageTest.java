@@ -107,6 +107,7 @@ class ChatServiceMessageTest {
         verify(chatAiClient, times(2)).reply(captor.capture());
         ChatAiRequest second = captor.getAllValues().get(1);
 
+        assertThat(second.characterCode()).isEqualTo(character.getCode());
         assertThat(second.characterName()).isEqualTo("다정한 모우");
         assertThat(second.characterDescription()).isEqualTo("따뜻하게 들어 주는 모우");
         assertThat(second.messages()).extracting(ChatAiRequest.Message::senderRole)
