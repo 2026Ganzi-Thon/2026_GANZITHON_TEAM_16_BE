@@ -20,6 +20,7 @@ import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
+import java.util.UUID;
 
 @Configuration
 public class JwtConfig {
@@ -64,12 +65,12 @@ public class JwtConfig {
         OAuth2TokenValidator<Jwt> typeValidator = jwt -> {
             String actualType = jwt.getClaimAsString("type");
 
-            if (expectedType.equals(actualType)) {
+            if (expectedType.equals(actualType) && jwt.getExpiresAt() != null && hasUserId(jwt)) {
                 return OAuth2TokenValidatorResult.success();
             }
 
             return OAuth2TokenValidatorResult.failure(
-                    new OAuth2Error("invalid_token", expectedType + " 토큰이 아닙니다.", null)
+                    new OAuth2Error("invalid_token", "토큰의 유형, 사용자 ID 또는 만료 시각이 올바르지 않습니다.", null)
             );
         };
 
@@ -78,5 +79,17 @@ public class JwtConfig {
         );
 
         return decoder;
+    }
+
+    private boolean hasUserId(Jwt jwt) {
+        String subject = jwt.getSubject();
+        if (subject == null) {
+            return false;
+        }
+        try {
+            return UUID.fromString(subject).toString().equals(subject);
+        } catch (IllegalArgumentException exception) {
+            return false;
+        }
     }
 }

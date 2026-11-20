@@ -1,0 +1,222 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Mowoo Java 21 Elastic Beanstalk environment (network is a separate stack)
+Parameters:
+  ApplicationName: {Type: String, Default: mowoo-backend}
+  EnvironmentName: {Type: String, Default: mowoo-prod}
+  PlatformArn: {Type: String}
+  VpcId: {Type: AWS::EC2::VPC::Id}
+  PublicSubnets: {Type: List<AWS::EC2::Subnet::Id>}
+  ApplicationSecurityGroupId: {Type: AWS::EC2::SecurityGroup::Id}
+  BundleBucket: {Type: String}
+  BundleKey: {Type: String}
+  VersionLabel: {Type: String}
+  DatabaseUrl: {Type: String}
+  DatabaseUsername: {Type: String, Default: mowoo_app}
+  DatabasePasswordSecretArn:
+    Type: String
+    Description: Secrets Manager ARN containing only the application database password
+  JwtSecretArn: {Type: String}
+  KakaoClientId: {Type: String}
+  KakaoSecretArn: {Type: String}
+  KakaoRedirectUri: {Type: String}
+  UpstageApiKeySecretArn:
+    Type: String
+    Default: ''
+    Description: Optional Secrets Manager ARN containing the Upstage API key
+  GoogleClientId: {Type: String, Default: ''}
+  GoogleRedirectUri: {Type: String, Default: ''}
+  GoogleSecretArn:
+    Type: String
+    Default: ''
+    Description: Optional Secrets Manager ARN containing the Google client secret
+  NaverClientId: {Type: String, Default: ''}
+  NaverRedirectUri: {Type: String, Default: ''}
+  NaverSecretArn:
+    Type: String
+    Default: ''
+    Description: Optional Secrets Manager ARN containing the Naver client secret
+  CorsAllowedOrigins: {Type: String, Default: 'http://localhost:3000'}
+  AppInstanceType: {Type: String, Default: t3.small}
+  EnablePhotoStorage:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+  EnableIpHttps:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+  HttpsDomain:
+    Type: String
+    Default: ''
+    AllowedPattern: '^$|^[a-z0-9][a-z0-9.-]*[.][a-z0-9]+$'
+    Description: Optional DNS name with an A record pointing at the environment EIP
+Conditions:
+  HasPhotoStorage: !Equals [!Ref EnablePhotoStorage, 'true']
+  EnableAi: !Not [!Equals [!Ref UpstageApiKeySecretArn, '']]
+  HasGoogleSecret: !Not [!Equals [!Ref GoogleSecretArn, '']]
+  HasNaverSecret: !Not [!Equals [!Ref NaverSecretArn, '']]
+Resources:
+  PhotoBucket:
+    Type: AWS::S3::Bucket
+    Condition: HasPhotoStorage
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules: [{ObjectOwnership: BucketOwnerEnforced}]
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault: {SSEAlgorithm: AES256}
+  PhotoBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Condition: HasPhotoStorage
+    Properties:
+      Bucket: !Ref PhotoBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Deny
+            Principal: '*'
+            Action: 's3:*'
+            Resource: [!GetAtt PhotoBucket.Arn, !Sub '${PhotoBucket.Arn}/*']
+            Condition: {Bool: {'aws:SecureTransport': 'false'}}
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: ec2.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSElasticBeanstalkWebTier
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Policies:
+        - !If
+          - HasPhotoStorage
+          - PolicyName: PhotoObjects
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Effect: Allow
+                  Action: [s3:PutObject, s3:GetObject, s3:DeleteObject]
+                  Resource: !Sub '${PhotoBucket.Arn}/uploads/*'
+          - !Ref 'AWS::NoValue'
+        - PolicyName: ApplicationSecrets
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: secretsmanager:GetSecretValue
+                Resource:
+                  - !Ref DatabasePasswordSecretArn
+                  - !Ref JwtSecretArn
+                  - !Ref KakaoSecretArn
+                  - !If [EnableAi, !Ref UpstageApiKeySecretArn, !Ref 'AWS::NoValue']
+                  - !If [HasGoogleSecret, !Ref GoogleSecretArn, !Ref 'AWS::NoValue']
+                  - !If [HasNaverSecret, !Ref NaverSecretArn, !Ref 'AWS::NoValue']
+        - PolicyName: ReadApplicationBundle
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub 'arn:aws:s3:::${BundleBucket}/releases/*'
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Sub 'arn:aws:s3:::${BundleBucket}'
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties: {Roles: [!Ref InstanceRole]}
+  ServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: {Service: elasticbeanstalk.amazonaws.com}
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSElasticBeanstalkEnhancedHealth
+        - arn:aws:iam::aws:policy/AWSElasticBeanstalkManagedUpdatesCustomerRolePolicy
+  Application:
+    Type: AWS::ElasticBeanstalk::Application
+    Properties:
+      ApplicationName: !Ref ApplicationName
+  InitialVersion:
+    Type: AWS::ElasticBeanstalk::ApplicationVersion
+    Properties:
+      ApplicationName: !Ref Application
+      Description: !Ref VersionLabel
+      SourceBundle: {S3Bucket: !Ref BundleBucket, S3Key: !Ref BundleKey}
+  Environment:
+    Type: AWS::ElasticBeanstalk::Environment
+    Properties:
+      ApplicationName: !Ref Application
+      EnvironmentName: !Ref EnvironmentName
+      PlatformArn: !Ref PlatformArn
+      VersionLabel: !Ref InitialVersion
+      OptionSettings:
+        - {Namespace: 'aws:elasticbeanstalk:environment', OptionName: EnvironmentType, Value: SingleInstance}
+        - {Namespace: 'aws:elasticbeanstalk:environment', OptionName: ServiceRole, Value: !GetAtt ServiceRole.Arn}
+        - {Namespace: 'aws:ec2:vpc', OptionName: VPCId, Value: !Ref VpcId}
+        - {Namespace: 'aws:ec2:vpc', OptionName: Subnets, Value: !Join [',', !Ref PublicSubnets]}
+        - {Namespace: 'aws:ec2:vpc', OptionName: AssociatePublicIpAddress, Value: 'true'}
+        - {Namespace: 'aws:autoscaling:launchconfiguration', OptionName: IamInstanceProfile, Value: !Ref InstanceProfile}
+        - {Namespace: 'aws:autoscaling:launchconfiguration', OptionName: SecurityGroups, Value: !Ref ApplicationSecurityGroupId}
+        - {Namespace: 'aws:autoscaling:launchconfiguration', OptionName: DisableDefaultEC2SecurityGroup, Value: 'true'}
+        - {Namespace: 'aws:ec2:instances', OptionName: InstanceTypes, Value: !Ref AppInstanceType}
+        - {Namespace: 'aws:autoscaling:asg', OptionName: MinSize, Value: '1'}
+        - {Namespace: 'aws:autoscaling:asg', OptionName: MaxSize, Value: '1'}
+        - {Namespace: 'aws:elasticbeanstalk:healthreporting:system', OptionName: SystemType, Value: enhanced}
+        - {Namespace: 'aws:elasticbeanstalk:command', OptionName: DeploymentPolicy, Value: AllAtOnce}
+        - {Namespace: 'aws:elasticbeanstalk:cloudwatch:logs', OptionName: StreamLogs, Value: 'true'}
+        - {Namespace: 'aws:elasticbeanstalk:cloudwatch:logs', OptionName: RetentionInDays, Value: '7'}
+        - {Namespace: 'aws:elasticbeanstalk:cloudwatch:logs', OptionName: DeleteOnTerminate, Value: 'false'}
+        - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: PORT, Value: '5000'}
+        - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: ENABLE_IP_HTTPS, Value: !Ref EnableIpHttps}
+        - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: HTTPS_DOMAIN, Value: !Ref HttpsDomain}
+        - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: DB_URL, Value: !Ref DatabaseUrl}
+        - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: DB_USERNAME, Value: !Ref DatabaseUsername}
+        - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: KAKAO_CLIENT_ID, Value: !Ref KakaoClientId}
+        - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: KAKAO_REDIRECT_URI, Value: !Ref KakaoRedirectUri}
+        - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: GOOGLE_CLIENT_ID, Value: !Ref GoogleClientId}
+        - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: GOOGLE_REDIRECT_URI, Value: !Ref GoogleRedirectUri}
+        - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: NAVER_CLIENT_ID, Value: !Ref NaverClientId}
+        - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: NAVER_REDIRECT_URI, Value: !Ref NaverRedirectUri}
+        - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: CORS_ALLOWED_ORIGINS, Value: !Ref CorsAllowedOrigins}
+        - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: AWS_REGION, Value: !Ref 'AWS::Region'}
+        - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: AWS_S3_ENABLED, Value: !Ref EnablePhotoStorage}
+        - !If [HasPhotoStorage, {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: AWS_S3_BUCKET, Value: !Ref PhotoBucket}, !Ref 'AWS::NoValue']
+        - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: AWS_S3_LOCATION, Value: uploads}
+        - {Namespace: 'aws:elasticbeanstalk:application:environment', OptionName: UPSTAGE_ENABLED, Value: !If [EnableAi, 'true', 'false']}
+        - {Namespace: 'aws:elasticbeanstalk:application:environmentsecrets', OptionName: DB_PASSWORD, Value: !Ref DatabasePasswordSecretArn}
+        - {Namespace: 'aws:elasticbeanstalk:application:environmentsecrets', OptionName: JWT_SECRET, Value: !Ref JwtSecretArn}
+        - {Namespace: 'aws:elasticbeanstalk:application:environmentsecrets', OptionName: KAKAO_CLIENT_SECRET, Value: !Ref KakaoSecretArn}
+        - !If
+          - EnableAi
+          - {Namespace: 'aws:elasticbeanstalk:application:environmentsecrets', OptionName: UPSTAGE_API_KEY, Value: !Ref UpstageApiKeySecretArn}
+          - !Ref 'AWS::NoValue'
+        - !If
+          - HasGoogleSecret
+          - {Namespace: 'aws:elasticbeanstalk:application:environmentsecrets', OptionName: GOOGLE_CLIENT_SECRET, Value: !Ref GoogleSecretArn}
+          - !Ref 'AWS::NoValue'
+        - !If
+          - HasNaverSecret
+          - {Namespace: 'aws:elasticbeanstalk:application:environmentsecrets', OptionName: NAVER_CLIENT_SECRET, Value: !Ref NaverSecretArn}
+          - !Ref 'AWS::NoValue'
+      Tags: [{Key: Project, Value: mowoo}]
+Outputs:
+  PhotoBucketName:
+    Condition: HasPhotoStorage
+    Value: !Ref PhotoBucket
+  EnvironmentName: {Value: !Ref Environment}
+  Endpoint: {Value: !GetAtt Environment.EndpointURL}
+  InstanceRoleArn: {Value: !GetAtt InstanceRole.Arn}
